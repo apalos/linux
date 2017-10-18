@@ -15,3 +15,10 @@ config VFIO_MDEV_DEVICE
 	default n
 	help
 	  VFIO based driver for Mediated devices.
+
+config VFIO_MDEV_NET_DEVICE
+	tristate "VFIO driver for Mediated network devices"
+	depends on VFIO && VFIO_MDEV
+	default n
+	help
+	  VFIO based driver for Mediated network devices.

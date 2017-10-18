@@ -1,0 +1,39 @@
+/*
+ * VFIO API definition
+ *
+ * Copyright (C) 2012 Red Hat, Inc.  All rights reserved.
+ *     Author: Alex Williamson <alex.williamson@redhat.com>
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 as
+ * published by the Free Software Foundation.
+ */
+#ifndef _UAPI__LINUX_NET_MDEV_H
+#define _UAPI__LINUX_NET_MDEV_H
+#include <linux/types.h>
+#include <linux/ioctl.h>
+
+/* find a way to define this IOCTL properly */
+#define VFIO_NETMDEV_TRANSITION_COMPLETE	500
+
+ /* The features are required to inform the userland about some parameters
+  * net_devce_stats does not seem to be usefull
+  * would need to trap ethtool_stats which uses hardware counter
+  * strangely, despite I can read packets from userland, ifconfig does not
+  * report any new packets
+  */
+struct netmdev_uapi {
+	netdev_features_t	features;
+	netdev_features_t	hw_features;
+	netdev_features_t	wanted_features;
+	netdev_features_t	vlan_features;
+	netdev_features_t	hw_enc_features;
+	netdev_features_t	mpls_features;
+	netdev_features_t	gso_partial_features;
+	atomic_long_t		rx_dropped;
+	atomic_long_t		tx_dropped;
+	atomic_long_t		rx_nohandler;
+	struct net_device_stats	stats;
+};
+
+#endif /* _UAPI__LINUX_NET_MDEV_H */
