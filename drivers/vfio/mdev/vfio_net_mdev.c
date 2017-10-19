@@ -191,7 +191,7 @@ static int netmdev_sysfs_remove(struct mdev_device *mdev)
 
 	if (!netmdev) {
 		port = get_netdev(mdev);
-		if (!port)
+		if (port)
 			dev_put(port);
 		kfree(netmdev);
 		mdev_set_drvdata(mdev, NULL);
@@ -454,7 +454,7 @@ static int netmdev_dev_mmap(struct mdev_device *mdev, struct vm_area_struct *vma
 	case VFIO_PCI_NUM_REGIONS + 3:
 		ret = netmdev->drv_ops.get_mmap_info(vma, netdev, &phys_pfn,
 						     &phys_len);
-		if (!ret)
+		if (ret)
 			return -EINVAL;
 		break;
 	default:

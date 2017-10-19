@@ -8685,12 +8685,12 @@ static int r8169_get_region(struct net_device* netdev, struct vfio_region_info *
 #endif
 		break;
 	case VFIO_PCI_NUM_REGIONS + 2:
-		info->offset = (__u64)(tp->RxDescArray);
+		info->offset = VFIO_PCI_INDEX_TO_OFFSET(info->index);
 		info->size = R8169_RX_RING_BYTES;
 		info->flags = VFIO_REGION_INFO_FLAG_MMAP;
 		break;
 	case VFIO_PCI_NUM_REGIONS + 3:
-		info->offset = (__u64)(tp->TxDescArray);
+		info->offset = VFIO_PCI_INDEX_TO_OFFSET(info->index);
 		info->size = R8169_TX_RING_BYTES;
 		info->flags = VFIO_REGION_INFO_FLAG_MMAP;
 		break;
