@@ -428,6 +428,62 @@ static int netmdev_dev_mmap(struct mdev_device *mdev, struct vm_area_struct *vma
 {
 	struct net_device *netdev;
 	struct netmdev *netmdev;
+	int ret = 0;
+	u64 phys_len, req_len, pgoff, req_start;
+	unsigned int index;
+	unsigned long phys_pfn;
+
+	/* userland wants to access ring descrptors that was pre-allocated
+	 * by the kernel
+	 * note: userland need to user IOCTL MAP to CREATE packet buffers
+	 */
+	netdev = get_netdev(mdev);
+	netmdev = mdev_get_drvdata(mdev);
+
+	if (vma->vm_end < vma->vm_start)
+		return -EINVAL;
+	if ((vma->vm_flags & VM_SHARED) == 0)
+		return -EINVAL;
+
+	index = vma->vm_pgoff >> (VFIO_PCI_OFFSET_SHIFT - PAGE_SHIFT);
+	switch (index) {
+	/* e1000e and r8169 for now only need BAR0/BAR2 respectively */
+	case VFIO_PCI_BAR0_REGION_INDEX ... VFIO_PCI_BAR5_REGION_INDEX:
+	/* Rx / Tx descriptors */
+	case VFIO_PCI_NUM_REGIONS + 2:
+	case VFIO_PCI_NUM_REGIONS + 3:
+		ret = netmdev->drv_ops.get_mmap_info(vma, netdev, &phys_pfn,
+						     &phys_len);
+		if (!ret)
+			return -EINVAL;
+		break;
+	default:
+		return -EINVAL;
+	}
+
+
+	req_len = vma->vm_end - vma->vm_start;
+	pgoff = vma->vm_pgoff &
+		((1U << (VFIO_PCI_OFFSET_SHIFT - PAGE_SHIFT)) - 1);
+	req_start = pgoff << PAGE_SHIFT;
+
+	if (req_start + req_len > phys_len)
+			return -EINVAL;
+
+	vma->vm_private_data = NULL;
+	vma->vm_page_prot = pgprot_noncached(vma->vm_page_prot);
+	vma->vm_pgoff = phys_pfn + pgoff;
+
+	return remap_pfn_range(vma, vma->vm_start, vma->vm_pgoff,
+			       req_len, vma->vm_page_prot);
+}
+
+/* FIXME migrate the mmaping to sparse capabilities model. Use this as a guide */
+#if 0
+static int netmdev_dev_mmap(struct mdev_device *mdev, struct vm_area_struct *vma)
+{
+	struct net_device *netdev;
+	struct netmdev *netmdev;
 	struct vfio_region_info info;
 	int ret = 0;
 	int i;
@@ -483,6 +539,7 @@ do_the_map:
 
 	return ret;
 }
+#endif
 
 static const struct mdev_parent_ops netmdev_sysfs_ops = {
 	.supported_type_groups = sysfs_type_list,

@@ -8595,6 +8595,52 @@ static int r8169_transition_back(struct net_device* netdev)
 	return 0;
 }
 
+static int r8169_get_mmap(struct vm_area_struct *vma, struct net_device* netdev,
+			  unsigned long *pfn, u64 *size)
+{
+	struct rtl8169_private *tp;
+	struct pci_dev *pdev;
+	unsigned long phys_pfn;
+	u64 phys_len;
+	unsigned int index;
+
+	tp = netdev_priv(netdev);
+	if (!tp)
+		return  -EFAULT;
+	pdev = tp->pci_dev;
+
+	if (vma->vm_end < vma->vm_start)
+		return -EINVAL;
+	if ((vma->vm_flags & VM_SHARED) == 0)
+		return -EINVAL;
+
+	index = vma->vm_pgoff >> (VFIO_PCI_OFFSET_SHIFT - PAGE_SHIFT);
+	switch(index) {
+	case VFIO_PCI_BAR2_REGION_INDEX:
+		phys_pfn = pci_resource_start(pdev, index) >> PAGE_SHIFT;
+		phys_len = pci_resource_len(pdev, index);
+		break;
+	case VFIO_PCI_NUM_REGIONS + 2:
+		/* Rx desc */
+		phys_pfn = (u64)virt_to_phys(tp->RxDescArray) >> PAGE_SHIFT;
+		phys_len = R8169_RX_RING_BYTES;
+		break;
+	case VFIO_PCI_NUM_REGIONS + 3:
+		/* Tx desc */
+		phys_pfn = (u64)virt_to_phys(tp->TxDescArray) >> PAGE_SHIFT;
+		phys_len = R8169_TX_RING_BYTES;
+		break;
+
+	default:
+		return -EINVAL;
+	}
+
+	*pfn = phys_pfn;
+	*size = PAGE_ALIGN(phys_len);
+
+	return 0;
+}
+
 static int r8169_get_region(struct net_device* netdev, struct vfio_region_info *info)
 {
 	struct rtl8169_private *tp;
@@ -8681,6 +8727,7 @@ struct netmdev_driver_ops rtl8169_netmdev_driver_ops =
 	.transition_complete = r8169_transition_complete,
 	.transition_back = r8169_transition_back,
 	.get_region_info = r8169_get_region,
+	.get_mmap_info = r8169_get_mmap,
 	.get_device_info = r8169_get_dev,
 	.get_irq_info = r8169_get_irq,
 };
