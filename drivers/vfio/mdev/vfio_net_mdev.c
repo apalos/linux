@@ -392,7 +392,7 @@ static long netmdev_dev_ioctl(struct mdev_device *mdev, unsigned int cmd,
 		printk(KERN_INFO"VFIO_IOMMU_MAP_DMA: io_remap_pfn_range %llx -> physmem <- @%llx, %lld:%d\n",
 		       map.vaddr, map.iova, map.size, ret);
 
-		if (!ret) {
+		if (ret) {
 			dma_unmap_single(parent_dev, mapping, map.size, DMA_BIDIRECTIONAL);
 			kfree(data);
 			printk(KERN_ERR"VFIO_IOMMU_MAP_DMA: io_remap_pfn_range failed\n");
