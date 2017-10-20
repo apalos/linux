@@ -429,9 +429,9 @@ static int netmdev_dev_mmap(struct mdev_device *mdev, struct vm_area_struct *vma
 	struct net_device *netdev;
 	struct netmdev *netmdev;
 	int ret = 0;
-	u64 phys_len, req_len, pgoff, req_start;
+	u64 req_len, pgoff, req_start;
 	unsigned int index;
-	unsigned long phys_pfn;
+	unsigned long pfn, nr_pages;
 
 	/* userland wants to access ring descrptors that was pre-allocated
 	 * by the kernel
@@ -452,8 +452,8 @@ static int netmdev_dev_mmap(struct mdev_device *mdev, struct vm_area_struct *vma
 	/* Rx / Tx descriptors */
 	case VFIO_PCI_NUM_REGIONS + 2:
 	case VFIO_PCI_NUM_REGIONS + 3:
-		ret = netmdev->drv_ops.get_mmap_info(vma, netdev, &phys_pfn,
-						     &phys_len);
+		ret = netmdev->drv_ops.get_mmap_info(netdev, index, &pfn,
+						     &nr_pages);
 		if (ret)
 			return -EINVAL;
 		break;
@@ -467,12 +467,12 @@ static int netmdev_dev_mmap(struct mdev_device *mdev, struct vm_area_struct *vma
 		((1U << (VFIO_PCI_OFFSET_SHIFT - PAGE_SHIFT)) - 1);
 	req_start = pgoff << PAGE_SHIFT;
 
-	if (req_start + req_len > phys_len)
+	if (req_start + req_len > (u64)nr_pages << PAGE_SHIFT)
 			return -EINVAL;
 
 	vma->vm_private_data = NULL;
 	vma->vm_page_prot = pgprot_noncached(vma->vm_page_prot);
-	vma->vm_pgoff = phys_pfn + pgoff;
+	vma->vm_pgoff = pfn + pgoff;
 
 	return remap_pfn_range(vma, vma->vm_start, vma->vm_pgoff,
 			       req_len, vma->vm_page_prot);
