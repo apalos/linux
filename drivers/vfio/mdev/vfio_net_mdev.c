@@ -213,8 +213,8 @@ static int netmdev_dev_open(struct mdev_device *mdev)
 	if (!port)
 		return -ENODEV;
 	netif_tx_stop_all_queues(port);
-	netmdev->drv_ops.transition_start(port);
 	port->priv_flags |= IFF_VFNETDEV;
+	netmdev->drv_ops.transition_start(port);
 
 	/* FIXME : uggly and dangerous, let's find a clean way to shadow the values*/
 	memcpy(&netmdev->uapi, &port->features, sizeof(struct netmdev_uapi));
@@ -236,8 +236,8 @@ static void netmdev_dev_release(struct mdev_device *mdev)
 	if (!port)
 		return;
 
-	netmdev->drv_ops.transition_back(port);
 	port->priv_flags &= ~IFF_VFNETDEV;
+	netmdev->drv_ops.transition_back(port);
 
 	while (netmdev->mappings_count > 0) {
 		i = --netmdev->mappings_count;
