@@ -104,40 +104,30 @@ static int e1000e_get_region(struct net_device *netdev,
 	return ret;
 }
 
-static int e1000e_get_mmap(struct vm_area_struct *vma,
-			   struct net_device *netdev, unsigned long *pfn,
-			   u64 * size)
+static int e1000e_get_mmap(struct net_device *netdev, u32 index,
+			   unsigned long *pfn, unsigned long *nr_pages)
 {
 	struct e1000_adapter *adapter = netdev_priv(netdev);
-	unsigned long phys_pfn = 0;
-	u64 phys_len = 0;
-	unsigned int index;
+	phys_addr_t start = 0;
+	u64 len = 0;
 	int ret = 0;
-
-	index = vma->vm_pgoff >> (VFIO_PCI_OFFSET_SHIFT - PAGE_SHIFT);
 
 	switch (index) {
 	case VFIO_PCI_BAR0_REGION_INDEX:
-		/* PCI resource 0 */
-		phys_pfn =
-		    pci_resource_start(adapter->pdev, index) >> PAGE_SHIFT;
-		phys_len = pci_resource_len(adapter->pdev, index);
+		start = pci_resource_start(adapter->pdev, index);
+		len = pci_resource_len(adapter->pdev, index);
 		break;
 
 	case VFIO_PCI_NUM_REGIONS + 2:
-		/* RX descriptor rings */
-		phys_pfn =
-		    (u64) virt_to_phys(adapter->rx_ring[0].
-				       desc) >> PAGE_SHIFT;
-		phys_len = adapter->rx_ring[0].size;
+		/* RX descriptor ring */
+		start = virt_to_phys(adapter->rx_ring[0].desc);
+		len = adapter->rx_ring[0].size;
 		break;
 
 	case VFIO_PCI_NUM_REGIONS + 3:
-		/* TX descriptor rings */
-		phys_pfn =
-		    (u64) virt_to_phys(adapter->tx_ring[0].
-				       desc) >> PAGE_SHIFT;
-		phys_len = adapter->tx_ring[0].size;
+		/* TX descriptor ring */
+		start = virt_to_phys(adapter->tx_ring[0].desc);
+		len = adapter->tx_ring[0].size;
 		break;
 
 	default:
@@ -145,8 +135,8 @@ static int e1000e_get_mmap(struct vm_area_struct *vma,
 		break;
 	}
 
-	*pfn = phys_pfn;
-	*size = PAGE_ALIGN(phys_len);
+	*pfn = start >> PAGE_SHIFT;
+	*nr_pages = PAGE_ALIGN(len) >> PAGE_SHIFT;
 
 	return ret;
 }

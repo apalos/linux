@@ -27,8 +27,8 @@ struct netmdev_driver_ops {
 	int (*transition_start)(struct net_device *ndev);
 	int (*transition_complete)(struct net_device *ndev);
 	int (*transition_back)(struct net_device *ndev);
-	int (*get_mmap_info)(struct vm_area_struct *vma, struct net_device* netdev,
-			     unsigned long *pfn, u64 *size);
+	int (*get_mmap_info)(struct net_device* netdev, u32 index,
+			     unsigned long *pfn, unsigned long *nr_pages);
 	int (*get_region_info)(struct net_device *ndev,
 			       struct vfio_region_info *info);
 	int (*get_device_info)(struct net_device *ndev,

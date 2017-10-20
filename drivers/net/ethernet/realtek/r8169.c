@@ -8595,48 +8595,38 @@ static int r8169_transition_back(struct net_device* netdev)
 	return 0;
 }
 
-static int r8169_get_mmap(struct vm_area_struct *vma, struct net_device* netdev,
-			  unsigned long *pfn, u64 *size)
+static int r8169_get_mmap(struct net_device *netdev, u32 index,
+			  unsigned long *pfn, unsigned long *nr_pages)
 {
-	struct rtl8169_private *tp;
-	struct pci_dev *pdev;
-	unsigned long phys_pfn;
-	u64 phys_len;
-	unsigned int index;
+	struct rtl8169_private *tp = netdev_priv(netdev);
+	phys_addr_t start = 0;
+	u64 len = 0;
+	int ret = 0;
 
-	tp = netdev_priv(netdev);
-	if (!tp)
-		return  -EFAULT;
-	pdev = tp->pci_dev;
-
-	if (vma->vm_end < vma->vm_start)
-		return -EINVAL;
-	if ((vma->vm_flags & VM_SHARED) == 0)
-		return -EINVAL;
-
-	index = vma->vm_pgoff >> (VFIO_PCI_OFFSET_SHIFT - PAGE_SHIFT);
-	switch(index) {
+	switch (index) {
 	case VFIO_PCI_BAR2_REGION_INDEX:
-		phys_pfn = pci_resource_start(pdev, index) >> PAGE_SHIFT;
-		phys_len = pci_resource_len(pdev, index);
+		start = pci_resource_start(tp->pci_dev, index);
+		len = pci_resource_len(tp->pci_dev, index);
 		break;
+
 	case VFIO_PCI_NUM_REGIONS + 2:
-		/* Rx desc */
-		phys_pfn = (u64)virt_to_phys(tp->RxDescArray) >> PAGE_SHIFT;
-		phys_len = R8169_RX_RING_BYTES;
+		/* RX descriptor ring */
+		start = virt_to_phys(tp->RxDescArray);
+		len = R8169_RX_RING_BYTES;
 		break;
+
 	case VFIO_PCI_NUM_REGIONS + 3:
-		/* Tx desc */
-		phys_pfn = (u64)virt_to_phys(tp->TxDescArray) >> PAGE_SHIFT;
-		phys_len = R8169_TX_RING_BYTES;
+		/* TX descriptor ring */
+		start = virt_to_phys(tp->TxDescArray);
+		len = R8169_TX_RING_BYTES;
 		break;
 
 	default:
 		return -EINVAL;
 	}
 
-	*pfn = phys_pfn;
-	*size = PAGE_ALIGN(phys_len);
+	*pfn = start >> PAGE_SHIFT;
+	*nr_pages = PAGE_ALIGN(len) >> PAGE_SHIFT;
 
 	return 0;
 }
