@@ -189,7 +189,7 @@ static int netmdev_sysfs_remove(struct mdev_device *mdev)
 	struct netmdev *netmdev = mdev_get_drvdata(mdev);
 	struct net_device *port;
 
-	if (!netmdev) {
+	if (netmdev) {
 		port = get_netdev(mdev);
 		if (port)
 			dev_put(port);
