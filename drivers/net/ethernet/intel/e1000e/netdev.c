@@ -239,8 +239,6 @@ static void e1000e_dump(struct e1000_adapter *adapter)
 	if (!netif_msg_hw(adapter))
 		return;
 
-	// MykytaI: doesn't compile on kernel 4.13
-#if 0
 	/* Print netdevice Info */
 	if (netdev) {
 		dev_info(&adapter->pdev->dev, "Net device Info\n");
@@ -248,7 +246,6 @@ static void e1000e_dump(struct e1000_adapter *adapter)
 		pr_info("%-15s %016lX %016lX\n", netdev->name,
 			netdev->state, dev_trans_start(netdev));
 	}
-#endif
 
 	/* Print Registers */
 	dev_info(&adapter->pdev->dev, "Register Dump\n");
@@ -2254,7 +2251,6 @@ static void e1000_irq_enable(struct e1000_adapter *adapter)
 		ew32(IMS, ~adapter->irq_mask & (IMS_ENABLE_MASK | E1000_IMS_ECCER));
 	} else {
 		ew32(IMS, ~adapter->irq_mask & IMS_ENABLE_MASK);
-		ew32(IMS, IMS_ENABLE_MASK);
 	}
 	e1e_flush();
 }
@@ -7020,10 +7016,7 @@ static const struct net_device_ops e1000e_netdev_ops = {
 	.ndo_open		= e1000e_open,
 	.ndo_stop		= e1000e_close,
 	.ndo_start_xmit		= e1000_xmit_frame,
-	// MykytaI: doesn't compile on kernel 4.13
-#if 0
 	.ndo_get_stats64	= e1000e_get_stats64,
-#endif
 	.ndo_set_rx_mode	= e1000e_set_rx_mode,
 	.ndo_set_mac_address	= e1000_set_mac,
 	.ndo_change_mtu		= e1000_change_mtu,
