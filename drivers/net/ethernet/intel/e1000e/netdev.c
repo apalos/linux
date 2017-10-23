@@ -45,6 +45,7 @@
 #include <linux/prefetch.h>
 
 #include "e1000.h"
+#include "e1000e_netmdev.h"
 
 #define DRV_EXTRAVERSION "-k"
 
@@ -238,6 +239,8 @@ static void e1000e_dump(struct e1000_adapter *adapter)
 	if (!netif_msg_hw(adapter))
 		return;
 
+	// MykytaI: doesn't compile on kernel 4.13
+#if 0
 	/* Print netdevice Info */
 	if (netdev) {
 		dev_info(&adapter->pdev->dev, "Net device Info\n");
@@ -245,6 +248,7 @@ static void e1000e_dump(struct e1000_adapter *adapter)
 		pr_info("%-15s %016lX %016lX\n", netdev->name,
 			netdev->state, dev_trans_start(netdev));
 	}
+#endif
 
 	/* Print Registers */
 	dev_info(&adapter->pdev->dev, "Register Dump\n");
@@ -2245,10 +2249,11 @@ static void e1000_irq_enable(struct e1000_adapter *adapter)
 
 	if (adapter->msix_entries) {
 		ew32(EIAC_82574, adapter->eiac_mask & E1000_EIAC_MASK_82574);
-		ew32(IMS, adapter->eiac_mask | E1000_IMS_LSC);
+		ew32(IMS, ~adapter->irq_mask & (adapter->eiac_mask | E1000_IMS_LSC));
 	} else if (hw->mac.type >= e1000_pch_lpt) {
-		ew32(IMS, IMS_ENABLE_MASK | E1000_IMS_ECCER);
+		ew32(IMS, ~adapter->irq_mask & (IMS_ENABLE_MASK | E1000_IMS_ECCER));
 	} else {
+		ew32(IMS, ~adapter->irq_mask & IMS_ENABLE_MASK);
 		ew32(IMS, IMS_ENABLE_MASK);
 	}
 	e1e_flush();
@@ -3765,7 +3770,9 @@ static void e1000_configure(struct e1000_adapter *adapter)
 		e1000e_setup_rss_hash(adapter);
 	e1000_setup_rctl(adapter);
 	e1000_configure_rx(adapter);
-	adapter->alloc_rx_buf(rx_ring, e1000_desc_unused(rx_ring), GFP_KERNEL);
+	if (!(adapter->netdev->priv_flags & IFF_VFNETDEV))
+		adapter->alloc_rx_buf(rx_ring, e1000_desc_unused(rx_ring),
+				      GFP_KERNEL);
 }
 
 /**
@@ -4195,11 +4202,11 @@ void e1000e_reset(struct e1000_adapter *adapter)
 
 /**
  * e1000e_trigger_lsc - trigger an LSC interrupt
- * @adapter: 
+ * @adapter:
  *
  * Fire a link status change interrupt to start the watchdog.
  **/
-static void e1000e_trigger_lsc(struct e1000_adapter *adapter)
+void e1000e_trigger_lsc(struct e1000_adapter *adapter)
 {
 	struct e1000_hw *hw = &adapter->hw;
 
@@ -4220,9 +4227,11 @@ void e1000e_up(struct e1000_adapter *adapter)
 		e1000_configure_msix(adapter);
 	e1000_irq_enable(adapter);
 
-	netif_start_queue(adapter->netdev);
+	if (!(adapter->netdev->priv_flags & IFF_VFNETDEV)) {
+		netif_start_queue(adapter->netdev);
 
-	e1000e_trigger_lsc(adapter);
+		e1000e_trigger_lsc(adapter);
+	}
 }
 
 static void e1000e_flush_descriptors(struct e1000_adapter *adapter)
@@ -5327,8 +5336,10 @@ link_up:
 	 * reset the controller to flush the Tx packet buffers.
 	 */
 	if (!netif_carrier_ok(netdev) &&
-	    (e1000_desc_unused(tx_ring) + 1 < tx_ring->count))
+	    (e1000_desc_unused(tx_ring) + 1 < tx_ring->count)) {
+		printk("Requesting e1000e restart due to stalled TX on carrier off\n");
 		adapter->flags |= FLAG_RESTART_NOW;
+	}
 
 	/* If reset is necessary, do it outside of interrupt context. */
 	if (adapter->flags & FLAG_RESTART_NOW) {
@@ -5336,6 +5347,9 @@ link_up:
 		/* return immediately since reset is imminent */
 		return;
 	}
+
+	printk("Bump, exiting %s\n", __FUNCTION__);
+	return;
 
 	e1000e_update_adaptive(&adapter->hw);
 
@@ -5921,8 +5935,10 @@ static void e1000_tx_timeout(struct net_device *netdev)
 	struct e1000_adapter *adapter = netdev_priv(netdev);
 
 	/* Do the reset outside of interrupt context */
-	adapter->tx_timeout_count++;
-	schedule_work(&adapter->reset_task);
+	if (!(adapter->netdev->priv_flags & IFF_VFNETDEV)) {
+		adapter->tx_timeout_count++;
+		schedule_work(&adapter->reset_task);
+	}
 }
 
 static void e1000_reset_task(struct work_struct *work)
@@ -7004,7 +7020,10 @@ static const struct net_device_ops e1000e_netdev_ops = {
 	.ndo_open		= e1000e_open,
 	.ndo_stop		= e1000e_close,
 	.ndo_start_xmit		= e1000_xmit_frame,
+	// MykytaI: doesn't compile on kernel 4.13
+#if 0
 	.ndo_get_stats64	= e1000e_get_stats64,
+#endif
 	.ndo_set_rx_mode	= e1000e_set_rx_mode,
 	.ndo_set_mac_address	= e1000_set_mac,
 	.ndo_change_mtu		= e1000_change_mtu,
@@ -7345,6 +7364,8 @@ static int e1000_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
 	/* carrier off reporting is important to ethtool even BEFORE open */
 	netif_carrier_off(netdev);
 
+	e1000e_register_netmdev(&pdev->dev);
+
 	e1000_print_device_info(adapter);
 
 	if (pci_dev_run_wake(pdev))
@@ -7419,6 +7440,8 @@ static void e1000_remove(struct pci_dev *pdev)
 	/* Don't lie to e1000_close() down the road. */
 	if (!down)
 		clear_bit(__E1000_DOWN, &adapter->state);
+
+	e1000e_unregister_netmdev(&pdev->dev);
 	unregister_netdev(netdev);
 
 	if (pci_dev_run_wake(pdev))

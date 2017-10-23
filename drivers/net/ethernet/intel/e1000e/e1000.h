@@ -319,6 +319,7 @@ struct e1000_adapter {
 	struct msix_entry *msix_entries;
 	int int_mode;
 	u32 eiac_mask;
+	u32 irq_mask;
 
 	u32 eeprom_wol;
 	u32 wol;
@@ -506,6 +507,7 @@ void e1000e_reset_interrupt_capability(struct e1000_adapter *adapter);
 void e1000e_get_hw_control(struct e1000_adapter *adapter);
 void e1000e_release_hw_control(struct e1000_adapter *adapter);
 void e1000e_write_itr(struct e1000_adapter *adapter, u32 itr);
+void e1000e_trigger_lsc(struct e1000_adapter *adapter);
 
 extern unsigned int copybreak;
 

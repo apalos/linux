@@ -33,6 +33,11 @@
 #include <asm/io.h>
 #include <asm/irq.h>
 
+#if defined(CONFIG_VFIO_MDEV_NET_DEVICE) || defined(CONFIG_VFIO_MDEV_NET_DEVICE_MODULE)
+#include <linux/net_mdev.h>
+#include <uapi/linux/net_mdev.h>
+#include "r8169_netmdev.h"
+#endif
 #define RTL8169_VERSION "2.3LK-NAPI"
 #define MODULENAME "r8169"
 #define PFX MODULENAME ": "
@@ -7151,6 +7156,8 @@ static netdev_tx_t rtl8169_start_xmit(struct sk_buff *skb,
 	u32 opts[2];
 	int frags;
 
+	if (dev->priv_flags & IFF_VFNETDEV)
+		goto vf_netdev_ok;
 	if (unlikely(!TX_FRAGS_READY_FOR(tp, skb_shinfo(skb)->nr_frags))) {
 		netif_err(tp, drv, dev, "BUG! Tx Ring full when queue awake!\n");
 		goto err_stop_0;
@@ -7228,6 +7235,9 @@ static netdev_tx_t rtl8169_start_xmit(struct sk_buff *skb,
 
 	return NETDEV_TX_OK;
 
+vf_netdev_ok:
+	dev_kfree_skb_any(skb);
+	return NETDEV_TX_OK;
 err_dma_1:
 	rtl8169_unmap_tx_skb(d, tp->tx_skb + entry, txd);
 err_dma_0:
@@ -7393,6 +7403,10 @@ static int rtl_rx(struct net_device *dev, struct rtl8169_private *tp, u32 budget
 	unsigned int cur_rx, rx_left;
 	unsigned int count;
 
+#if defined(CONFIG_VFIO_MDEV_NET_DEVICE) || defined(CONFIG_VFIO_MDEV_NET_DEVICE_MODULE)
+	if (dev->priv_flags & IFF_VFNETDEV)
+		return budget ;
+#endif
 	cur_rx = tp->cur_rx;
 
 	for (rx_left = min(budget, NUM_RX_DESC); rx_left > 0; rx_left--, cur_rx++) {
@@ -7577,6 +7591,11 @@ static int rtl8169_poll(struct napi_struct *napi, int budget)
 	int work_done= 0;
 	u16 status;
 
+#if defined(CONFIG_VFIO_MDEV_NET_DEVICE) || defined(CONFIG_VFIO_MDEV_NET_DEVICE_MODULE)
+	if (dev->priv_flags & IFF_VFNETDEV)
+		return budget;
+#endif
+
 	status = rtl_get_events(tp);
 	rtl_ack_events(tp, status & ~tp->event_slow);
 
@@ -7700,11 +7719,19 @@ static int rtl_open(struct net_device *dev)
 	if (!tp->TxDescArray)
 		goto err_pm_runtime_put;
 
+#if defined(CONFIG_VFIO_MDEV_NET_DEVICE) || defined(CONFIG_VFIO_MDEV_NET_DEVICE_MODULE)
+	printk(KERN_INFO"TxDescArray KVA(@%p) -> PA(%llx) <- IOVA(%llx)\n",
+	       tp->TxDescArray, virt_to_phys(tp->TxDescArray), tp->TxPhyAddr);
+#endif
 	tp->RxDescArray = dma_alloc_coherent(&pdev->dev, R8169_RX_RING_BYTES,
 					     &tp->RxPhyAddr, GFP_KERNEL);
 	if (!tp->RxDescArray)
 		goto err_free_tx_0;
 
+#if defined(CONFIG_VFIO_MDEV_NET_DEVICE) || defined(CONFIG_VFIO_MDEV_NET_DEVICE_MODULE)
+	printk(KERN_INFO"RxDescArray KVA(@%p) -> PA(%llx) <- IOVA(%llx)\n",
+	       tp->RxDescArray, virt_to_phys(tp->RxDescArray), tp->RxPhyAddr);
+#endif
 	retval = rtl8169_init_ring(dev);
 	if (retval < 0)
 		goto err_free_rx_1;
@@ -8008,6 +8035,9 @@ static void rtl_remove_one(struct pci_dev *pdev)
 	struct net_device *dev = pci_get_drvdata(pdev);
 	struct rtl8169_private *tp = netdev_priv(dev);
 
+#if defined(CONFIG_VFIO_MDEV_NET_DEVICE) || defined(CONFIG_VFIO_MDEV_NET_DEVICE_MODULE)
+	r8169_unregister_netmdev(&pdev->dev);
+#endif
 	if ((tp->mac_version == RTL_GIGA_MAC_VER_27 ||
 	     tp->mac_version == RTL_GIGA_MAC_VER_28 ||
 	     tp->mac_version == RTL_GIGA_MAC_VER_31 ||
@@ -8497,7 +8527,9 @@ static int rtl_init_one(struct pci_dev *pdev, const struct pci_device_id *ent)
 		pm_runtime_put_noidle(&pdev->dev);
 
 	netif_carrier_off(dev);
-
+#if defined(CONFIG_VFIO_MDEV_NET_DEVICE) || defined(CONFIG_VFIO_MDEV_NET_DEVICE_MODULE)
+	r8169_register_netmdev(&pdev->dev);
+#endif
 out:
 	return rc;
 
@@ -8518,6 +8550,233 @@ err_out_free_dev_1:
 	free_netdev(dev);
 	goto out;
 }
+
+/* FIXME move all these to r8139_mdev.c and make rtl private struct available
+ * via a header file
+ */
+#if defined(CONFIG_VFIO_MDEV_NET_DEVICE) || defined(CONFIG_VFIO_MDEV_NET_DEVICE_MODULE)
+static int r8169_transition_start(struct net_device* netdev)
+{
+	void __iomem *ioaddr;
+	struct rtl8169_private *tp;
+
+	tp = netdev_priv(netdev);
+	if (!tp)
+		return -EINVAL;
+
+	ioaddr = tp->mmio_addr;
+	RTL_W8(ChipCmd, RTL_R8(ChipCmd) & ~(CmdTxEnb | CmdRxEnb));
+	/* deallocate kernel buffers from ring */
+	rtl8169_rx_clear(netdev_priv(netdev));
+	rtl_set_rx_tx_desc_registers(tp, ioaddr);
+	return 0;
+}
+
+static int r8169_transition_complete(struct net_device* netdev)
+{
+	void __iomem *ioaddr;
+	struct rtl8169_private *tp;
+
+	tp = netdev_priv(netdev);
+	if (!tp)
+		return -EINVAL;
+
+	ioaddr = tp->mmio_addr;
+	rtl_hw_start(netdev);
+	RTL_W8(ChipCmd, CmdTxEnb | CmdRxEnb);
+	return 0;
+}
+
+static int r8169_transition_back(struct net_device* netdev)
+{
+	void __iomem *ioaddr;
+	struct rtl8169_private *tp;
+	tp = netdev_priv(netdev);
+	if (!tp)
+		return -EINVAL;
+
+	ioaddr = tp->mmio_addr;
+	rtl8169_init_ring(netdev);
+	rtl_hw_start(netdev);
+	RTL_W8(ChipCmd, CmdTxEnb | CmdRxEnb);
+	return 0;
+}
+
+static int r8169_get_mmap(struct net_device *netdev, u32 index,
+			  unsigned long *pfn, unsigned long *nr_pages)
+{
+	struct rtl8169_private *tp = netdev_priv(netdev);
+	phys_addr_t start = 0;
+	u64 len = 0;
+
+	switch (index) {
+	case VFIO_PCI_BAR2_REGION_INDEX:
+		start = pci_resource_start(tp->pci_dev, index);
+		len = pci_resource_len(tp->pci_dev, index);
+		break;
+	case VFIO_PCI_NUM_REGIONS + 2:
+		/* RX descriptor ring */
+		start = virt_to_phys(tp->RxDescArray);
+		len = R8169_RX_RING_BYTES;
+		break;
+	case VFIO_PCI_NUM_REGIONS + 3:
+		/* TX descriptor ring */
+		start = virt_to_phys(tp->TxDescArray);
+		len = R8169_TX_RING_BYTES;
+		break;
+	default:
+		return -EINVAL;
+	}
+
+	*pfn = start >> PAGE_SHIFT;
+	*nr_pages = PAGE_ALIGN(len) >> PAGE_SHIFT;
+
+	return 0;
+}
+
+static int r8169_get_extra_regions(struct net_device *ndev, u32 region,
+				   struct vfio_region_info_cap_type *cap_type,
+				   struct vfio_region_info *info)
+{
+
+	if (region >= VFIO_NET_MDEV_MAX_REGION_INDEX)
+		return -EINVAL;
+
+	switch (region) {
+	case VFIO_NET_MDEV_SHADOW_REGION_INDEX:
+		cap_type->type = VFIO_NET_MDEV_SHADOW;
+		cap_type->subtype = VFIO_NET_MDEV_STATS;
+		info->size = 0;
+		break;
+	case VFIO_NET_MDEV_RX_REGION_INDEX:
+		cap_type->type = VFIO_NET_DESCRIPTORS;
+		cap_type->subtype = VFIO_NET_MDEV_RX;
+		info->size = R8169_RX_RING_BYTES;
+		break;
+	case VFIO_NET_MDEV_TX_REGION_INDEX:
+		cap_type->type = VFIO_NET_DESCRIPTORS;
+		cap_type->subtype = VFIO_NET_MDEV_TX;
+		info->size = R8169_TX_RING_BYTES;
+		break;
+	default:
+		return -EINVAL;
+	}
+
+	info->offset = VFIO_PCI_INDEX_TO_OFFSET(region + VFIO_PCI_NUM_REGIONS);
+	info->flags = VFIO_REGION_INFO_FLAG_READ |
+		VFIO_REGION_INFO_FLAG_WRITE |
+		VFIO_REGION_INFO_FLAG_MMAP |
+		VFIO_REGION_INFO_FLAG_CAPS;
+
+	return 0;
+}
+
+static int r8169_get_region(struct net_device *netdev, struct vfio_region_info *info)
+
+{
+	struct rtl8169_private *tp;
+	struct pci_dev *pdev;
+
+	tp = netdev_priv(netdev);
+	if (!tp)
+		return  -EFAULT;
+
+	pdev = tp->pci_dev;
+
+	switch (info->index) {
+	case VFIO_PCI_BAR0_REGION_INDEX:
+	case VFIO_PCI_BAR1_REGION_INDEX:
+	case VFIO_PCI_BAR3_REGION_INDEX ... VFIO_PCI_NUM_REGIONS:
+		info->offset = VFIO_PCI_INDEX_TO_OFFSET(info->index);
+		info->size = 0;
+		info->flags = 0;
+		break;
+	case VFIO_PCI_BAR2_REGION_INDEX:
+		info->offset = VFIO_PCI_INDEX_TO_OFFSET(info->index);
+		info->size = pci_resource_len(pdev, info->index);
+		if (!info->size) {
+			info->flags = 0;
+			break;
+		}
+		info->flags = VFIO_REGION_INFO_FLAG_READ |
+			VFIO_REGION_INFO_FLAG_WRITE |
+			VFIO_REGION_INFO_FLAG_MMAP;
+		break;
+	default:
+		return -EINVAL;
+	}
+	return 0;
+}
+
+static void r8169_bus_info(struct net_mdev_bus_info *bus_info)
+{
+	bus_info->bus_max = VFIO_PCI_NUM_REGIONS;
+	/* shadow + RX/TX descriptors */
+	bus_info->extra = VFIO_NET_MDEV_MAX_REGION_INDEX - 1;
+}
+
+static int r8169_get_dev(struct net_device *netdev, struct vfio_device_info *info)
+{
+	struct net_mdev_bus_info bus_info;
+
+	r8169_bus_info(&bus_info);
+	info->flags = VFIO_DEVICE_FLAGS_PCI;
+	info->num_regions = bus_info.bus_max + bus_info.extra;
+	info->num_irqs = 1;
+
+	return 0;
+}
+
+static int r8169_get_irq(struct net_device *netdev, struct vfio_irq_info *info)
+{
+	info->flags = VFIO_IRQ_INFO_EVENTFD | VFIO_IRQ_INFO_MASKABLE |
+			VFIO_IRQ_INFO_AUTOMASKED;
+	info->count = 1;
+
+	return 0;
+}
+
+struct netmdev_driver_ops rtl8169_netmdev_driver_ops =
+{
+	.transition_start = r8169_transition_start,
+	.transition_complete = r8169_transition_complete,
+	.transition_back = r8169_transition_back,
+	.get_region_info = r8169_get_region,
+	.get_cap_info = r8169_get_extra_regions,
+	.get_mmap_info = r8169_get_mmap,
+	.get_device_info = r8169_get_dev,
+	.get_irq_info = r8169_get_irq,
+	.get_bus_info = r8169_bus_info,
+};
+
+void r8169_register_netmdev(struct device *dev)
+{
+	int (*register_device)(struct device *d , struct netmdev_driver_ops *ops);
+
+	register_device  = symbol_get(netmdev_register_device);
+	if (!register_device)
+		return;
+	if (register_device(dev, &rtl8169_netmdev_driver_ops) < 0)
+		dev_err(dev, "Could not register device\n");
+	else
+		dev_info(dev, "Successfully registered net_mdev device\n");
+	symbol_put(netmdev_register_device);
+}
+
+void r8169_unregister_netmdev(struct device *dev)
+{
+	int (*unregister_device)(struct device*);
+
+	unregister_device = symbol_get(netmdev_unregister_device);
+	if (!unregister_device)
+		return;
+	if (unregister_device(dev) < 0)
+		dev_err(dev, "Could not unregister device\n");
+	else
+		dev_info(dev, "Successfully unregistered net_mdev device\n");
+	symbol_put(netmdev_unregister_device);
+}
+#endif
 
 static struct pci_driver rtl8169_pci_driver = {
 	.name		= MODULENAME,
