@@ -8,7 +8,7 @@
 #include "r8169_private.h"
 extern void rtl8169_rx_clear(struct rtl8169_private *tp);
 extern void rtl_set_rx_tx_desc_registers(struct rtl8169_private *tp,
-				   void __iomem *ioaddr);
+					 void __iomem *ioaddr);
 extern void rtl_hw_start(struct net_device *dev);
 extern int rtl8169_init_ring(struct net_device *dev);
 

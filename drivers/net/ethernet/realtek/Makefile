@@ -2,8 +2,10 @@
 # Makefile for the Realtek network device drivers.
 #
 
-#r8169-objs-$(CONFIG_VFIO_MDEV_NET_DEVICE) += r8169_mdev.o
+r8169-objs += r8169_main.o
+ifdef CONFIG_VFIO_MDEV_NET_DEVICE
 r8169-objs += r8169_mdev.o
+endif
 
 obj-$(CONFIG_8139CP) += 8139cp.o
 obj-$(CONFIG_8139TOO) += 8139too.o
