@@ -260,7 +260,7 @@ static long netmdev_dev_ioctl(struct mdev_device *mdev, unsigned int cmd,
 		return copy_to_user((void __user *)arg, &device_info, minsz) ?
 			-EFAULT : 0;
 	case VFIO_DEVICE_GET_REGION_INFO:
-		netmdev->drv_ops.get_bus_info(&bus_info);
+		netmdev->drv_ops.get_bus_info(netdev, &bus_info);
 		max_regions = bus_info.bus_max + bus_info.extra;
 
 		minsz = offsetofend(struct vfio_region_info, offset);
@@ -439,7 +439,7 @@ static int netmdev_dev_mmap(struct mdev_device *mdev, struct vm_area_struct *vma
 	if ((vma->vm_flags & VM_SHARED) == 0)
 		return -EINVAL;
 
-	netmdev->drv_ops.get_bus_info(&bus_info);
+	netmdev->drv_ops.get_bus_info(netdev, &bus_info);
 	max = bus_info.bus_max + bus_info.extra;
 
 	index = vma->vm_pgoff >> (VFIO_PCI_OFFSET_SHIFT - PAGE_SHIFT);

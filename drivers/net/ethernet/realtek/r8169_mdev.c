@@ -71,16 +71,19 @@ static int r8169_get_mmap(struct net_device *netdev, u32 index,
 		start = pci_resource_start(tp->pci_dev, index);
 		len = pci_resource_len(tp->pci_dev, index);
 		break;
-	case VFIO_PCI_NUM_REGIONS + 2:
+
+	case VFIO_PCI_NUM_REGIONS + VFIO_NET_MDEV_RX_REGION_INDEX:
 		/* RX descriptor ring */
 		start = virt_to_phys(tp->RxDescArray);
 		len = R8169_RX_RING_BYTES;
 		break;
-	case VFIO_PCI_NUM_REGIONS + 3:
+
+	case VFIO_PCI_NUM_REGIONS + VFIO_NET_MDEV_TX_REGION_INDEX:
 		/* TX descriptor ring */
 		start = virt_to_phys(tp->TxDescArray);
 		len = R8169_TX_RING_BYTES;
 		break;
+
 	default:
 		return -EINVAL;
 	}
@@ -95,8 +98,7 @@ static int r8169_get_extra_regions(struct net_device *ndev, u32 region,
 				   struct vfio_region_info_cap_type *cap_type,
 				   struct vfio_region_info *info)
 {
-
-	if (region >= VFIO_NET_MDEV_MAX_REGION_INDEX)
+	if (region >= VFIO_NET_MDEV_NUM_REGIONS)
 		return -EINVAL;
 
 	switch (region) {
@@ -105,16 +107,19 @@ static int r8169_get_extra_regions(struct net_device *ndev, u32 region,
 		cap_type->subtype = VFIO_NET_MDEV_STATS;
 		info->size = 0;
 		break;
+
 	case VFIO_NET_MDEV_RX_REGION_INDEX:
 		cap_type->type = VFIO_NET_DESCRIPTORS;
 		cap_type->subtype = VFIO_NET_MDEV_RX;
 		info->size = R8169_RX_RING_BYTES;
 		break;
+
 	case VFIO_NET_MDEV_TX_REGION_INDEX:
 		cap_type->type = VFIO_NET_DESCRIPTORS;
 		cap_type->subtype = VFIO_NET_MDEV_TX;
 		info->size = R8169_TX_RING_BYTES;
 		break;
+
 	default:
 		return -EINVAL;
 	}
@@ -165,18 +170,20 @@ static int r8169_get_region(struct net_device *netdev, struct vfio_region_info *
 	return 0;
 }
 
-static void r8169_bus_info(struct net_mdev_bus_info *bus_info)
+static int r8169_bus_info(struct net_device *netdev, struct net_mdev_bus_info *bus_info)
 {
 	bus_info->bus_max = VFIO_PCI_NUM_REGIONS;
-	/* shadow + RX/TX descriptors */
-	bus_info->extra = VFIO_NET_MDEV_MAX_REGION_INDEX - 1;
+	bus_info->extra = VFIO_NET_MDEV_NUM_REGIONS;
+
+	return 0;
 }
 
 static int r8169_get_dev(struct net_device *netdev, struct vfio_device_info *info)
 {
 	struct net_mdev_bus_info bus_info;
 
-	r8169_bus_info(&bus_info);
+	r8169_bus_info(netdev, &bus_info);
+
 	info->flags = VFIO_DEVICE_FLAGS_PCI;
 	info->num_regions = bus_info.bus_max + bus_info.extra;
 	info->num_irqs = 1;

@@ -43,8 +43,8 @@ struct netmdev_driver_ops {
 	int (*get_irq_info)(struct net_device *ndev,
 			       struct vfio_irq_info *info);
 	int (*reset_dev)(struct net_device *ndev);
-
-	void (*get_bus_info)(struct net_mdev_bus_info *bus_info);
+	int (*get_bus_info)(struct net_device *ndev,
+			       struct net_mdev_bus_info *bus_info);
 };
 
 int netmdev_register_device(struct device* dev, struct netmdev_driver_ops *ops);
