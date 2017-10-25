@@ -9,7 +9,7 @@ struct netmdev_driver {
 
 struct iovamap {
 	u64 iova;
-	void *vaddr;
+	void *cookie;
 	struct device *dev;
 	u32 size; /* maximum of 32MB */
 	enum dma_data_direction direction;

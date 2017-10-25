@@ -193,7 +193,6 @@ static int netmdev_dev_open(struct mdev_device *mdev)
 static void netmdev_dev_release(struct mdev_device *mdev)
 {
 	struct net_device *port;
-	int i;
 	struct netmdev *netmdev = mdev_get_drvdata(mdev);
 
 	/* TODO export shadow stats to net_device */
@@ -208,16 +207,137 @@ static void netmdev_dev_release(struct mdev_device *mdev)
 	netmdev->drv_ops.transition_back(port);
 
 	while (netmdev->mappings_count > 0) {
-		i = --netmdev->mappings_count;
-		dma_unmap_single(netmdev->mappings[i].dev, netmdev->mappings[i].iova,
-				 netmdev->mappings[i].size,
-				 netmdev->mappings[i].direction);
-		kfree(netmdev->mappings[i].vaddr);
+		struct iovamap *mapping =
+		    &netmdev->mappings[--netmdev->mappings_count];
+		dma_free_attrs(mapping->dev, mapping->size,
+			       mapping->cookie, mapping->iova,
+			       DMA_ATTR_NO_KERNEL_MAPPING |
+			       DMA_ATTR_WRITE_COMBINE);
 	}
 
 	netif_tx_start_all_queues(port);
 
 	return;
+}
+
+/*
+ * Allocate DMA area and map it where the userland asks.
+ * Userland need to mmap an area WITHOUT allocating pages:
+ * mmap(vaddr,size, PROT_READ | PROT_WRITE, MAP_SHARED |
+ * MAP_ANONYMOUS | MAP_NORESERVE | MAP_FIXED, -1, 0
+ * MAP_NORESERVE ensures only VA space is booked, no pages are mapped.
+ * The mapping must be the entire area, not partial on the vma.
+ */
+static int netmdev_vfio_mmap_dma(struct mdev_device *mdev,
+				 struct vfio_iommu_type1_dma_map *param)
+{
+	struct netmdev *netmdev = mdev_get_drvdata(mdev);
+	enum dma_data_direction direction;
+	struct vm_area_struct *vma;
+	struct iovamap *mapping;
+
+	if (netmdev->mappings_count >= ARRAY_SIZE(netmdev->mappings))
+		return -ENOMEM;
+
+	if (param->flags & ~(VFIO_DMA_MAP_FLAG_READ | VFIO_DMA_MAP_FLAG_WRITE))
+		return -EINVAL;
+
+	if ((param->size & ~PAGE_MASK) || (param->vaddr & ~PAGE_MASK))
+		return -EINVAL;
+
+	/*
+	 * locates the containing vma for the required map.vaddr.
+	 * The vma must point to the entire zone allocated by mmap in
+	 * userland.
+	 */
+	vma = find_vma(current->mm, param->vaddr);
+	if (!vma)
+		return -EFAULT;
+
+	if (param->vaddr + param->size > vma->vm_end)
+		return -EINVAL;
+
+	if (param->flags & VFIO_DMA_MAP_FLAG_READ) {
+		if (param->flags & VFIO_DMA_MAP_FLAG_WRITE)
+			direction = DMA_BIDIRECTIONAL;
+		else
+			direction = DMA_TO_DEVICE;
+	} else {
+		if (param->flags & VFIO_DMA_MAP_FLAG_WRITE)
+			direction = DMA_FROM_DEVICE;
+		else
+			return -EINVAL;
+	}
+
+	/* Allocate new netmdev mapping */
+	mapping = &netmdev->mappings[netmdev->mappings_count++];
+	mapping->dev = mdev_parent_dev(mdev);
+	mapping->size = param->size;
+	mapping->direction = direction;
+
+	/*
+	 * TODO: allocate close to NUMA node like ixgbe does
+	 *   set_dev_node(mapping->dev, dma_node);
+	 *   dma_alloc_coherent();
+	 *   set_dev_node(dev, orig_node);
+	 */
+	/*
+	 * TODO: Not all platforms support cache coherent DMA.
+	 * dma_alloc_coherent() will fallback to allocate non-cacheable
+	 * memory which won't provide acceptable packet IO performance.
+	 * We shall implement non-coherent allocation and cache sync API
+	 * to invalidate cache in RX path and flush cache in TX path.
+	 * Possible solution is to use DMA_ATTR_NON_CONSISTENT with
+	 * dma_alloc_attrs() and let the application request cache
+	 * synchronization via a syscall.
+	 */
+	/*
+	 * TODO: add dev_hold() and dev_put() to make sure we don't exit
+	 * before all mappings are removed from userspace.
+	 */
+	mapping->cookie =
+	    dma_alloc_attrs(mapping->dev, mapping->size, &mapping->iova,
+			    GFP_KERNEL,
+			    DMA_ATTR_NO_KERNEL_MAPPING |
+			    DMA_ATTR_WRITE_COMBINE);
+	if (!mapping->cookie) {
+		netmdev->mappings_count--;
+		return -EFAULT;
+	}
+
+#if 1
+	if (dma_mmap_attrs
+	    (mapping->dev, vma, mapping->cookie, mapping->iova,
+	     mapping->size,
+	     DMA_ATTR_NO_KERNEL_MAPPING | DMA_ATTR_WRITE_COMBINE) < 0) {
+		dma_free_attrs(mapping->dev, mapping->size,
+			       mapping->cookie, mapping->iova,
+			       DMA_ATTR_NO_KERNEL_MAPPING |
+			       DMA_ATTR_WRITE_COMBINE);
+		netmdev->mappings_count--;
+		return -EFAULT;
+	}
+#else
+	if (remap_pfn_range(vma, vma->vm_start,
+			    page_to_pfn(virt_to_page(mapping->cookie)),
+			    mapping->size, vma->vm_page_prot) < 0) {
+		dma_free_attrs(mapping->dev, mapping->size,
+			       mapping->cookie, mapping->iova,
+			       DMA_ATTR_NO_KERNEL_MAPPING |
+			       DMA_ATTR_WRITE_COMBINE);
+		netmdev->mappings_count--;
+		return -EFAULT;
+	}
+#endif
+
+	/* Pass the IOVA to userspace */
+	param->iova = mapping->iova;
+
+	printk(KERN_INFO
+	       "VFIO_IOMMU_MAP_DMA: new mapping %lld @ 0x%llx -> 0x@%llx\n",
+	       param->size, param->vaddr, param->iova);
+
+	return 0;
 }
 
 static long netmdev_dev_ioctl(struct mdev_device *mdev, unsigned int cmd,
@@ -232,6 +352,7 @@ static long netmdev_dev_ioctl(struct mdev_device *mdev, unsigned int cmd,
 	struct vfio_info_cap caps = { .buf = NULL, .size = 0 };
 	struct vfio_region_info_cap_type cap_type;
 	struct net_mdev_bus_info bus_info = { .bus_max = 0, .extra = 0 };
+	struct vfio_iommu_type1_dma_map param;
 	int ret, cap_index;
 	int max_regions = 0;
 
@@ -323,86 +444,24 @@ static long netmdev_dev_ioctl(struct mdev_device *mdev, unsigned int cmd,
 		irq_info.flags = VFIO_IRQ_INFO_EVENTFD |
 			VFIO_IRQ_INFO_MASKABLE |
 			VFIO_IRQ_INFO_AUTOMASKED;
+
 		return copy_to_user((void __user *)arg, &irq_info, minsz) ?
 			-EFAULT : 0;
-	case VFIO_IOMMU_MAP_DMA: {
-		struct vfio_iommu_type1_dma_map map;
-		struct vm_area_struct *vma;
-		void *data;
-		struct device *parent_dev;
-		int node;
-		dma_addr_t mapping;
-		int ret = -EINVAL;
-
-		/* allocate DMA area and map it where the userland asks
-		 * userland need to mmap an area WITHOUT allocating pages:
-		 * mmap(vaddr,size, PROT_READ | PROT_WRITE, MAP_SHARED |
-		 * MAP_ANONYMOUS | MAP_NORESERVE | MAP_FIXED, -1, 0
-		 * MAP_NORESERVE ensures only VA space is booked, no pages are
-		 * mapped * the mapping must be the entire area, not partial on
-		 * the vma
-		 */
-		if (netmdev->mappings_count >= 128)
-			return -EFAULT;
+	case VFIO_IOMMU_MAP_DMA:
 		minsz = offsetofend(struct vfio_iommu_type1_dma_map, size);
-		if (copy_from_user(&map, (void __user *)arg, minsz)) {
+
+		if (copy_from_user(&param, (void __user *)arg, minsz))
 			ret = -EFAULT;
-			goto out;
-		}
-		if (map.argsz < minsz)
-			goto out;
-		/*
-		 * locates the containing vma for the required map.vaddr
-		 * the vma must point to the entire zone allocated by mmap in
-		 * userland
-		 */
-		vma = find_vma(current->mm, map.vaddr);
-		if (!vma)
-			return -EFAULT;
-		if (map.vaddr >= vma->vm_end)
-			return -EFAULT;
-		/* the iova will be returned as part of the ioctl to the userland */
-		parent_dev = mdev_parent_dev(mdev);
-		node = netdev->dev.parent ? dev_to_node(netdev->dev.parent) : -1;
-		data = kmalloc_node(map.size, GFP_KERNEL, node);
-		if (!data)
-			/* return ret? */
-			return -ENOMEM;
 
-		mapping = dma_map_single(parent_dev, data, map.size,
-					 DMA_BIDIRECTIONAL);
-		if (unlikely(dma_mapping_error(parent_dev, mapping))) {
-			if (net_ratelimit())
-				dev_err(parent_dev,
-					"Failed to dma_map_single buffer for userland!\n");
-			kfree(data);
-			goto out;
-		}
-		map.iova = mapping;
-		ret = io_remap_pfn_range(vma, map.vaddr,
-					 virt_to_phys(data) >> PAGE_SHIFT,
-					 map.size, vma->vm_page_prot);
-		if (ret) {
-			dma_unmap_single(parent_dev, mapping, map.size, DMA_BIDIRECTIONAL);
-			kfree(data);
-			printk(KERN_ERR"VFIO_IOMMU_MAP_DMA: io_remap_pfn_range failed\n");
-			return -EFAULT;
-		}
-		printk(KERN_INFO"VFIO_IOMMU_MAP_DMA: io_remap_pfn_range %llx -> physmem <- @%llx, %lld:%d\n",
-		       map.vaddr, map.iova, map.size, ret);
+		if (param.argsz < minsz)
+			return -EINVAL;
 
-		netmdev->mappings[netmdev->mappings_count].dev = parent_dev;
-		netmdev->mappings[netmdev->mappings_count].vaddr = data;
-		netmdev->mappings[netmdev->mappings_count].iova = mapping;
-		netmdev->mappings[netmdev->mappings_count].size = map.size;
-		netmdev->mappings[netmdev->mappings_count].direction = DMA_BIDIRECTIONAL;
-		netmdev->mappings_count++;
+		ret = netmdev_vfio_mmap_dma(mdev, &param);
+		if (ret < 0)
+			return ret;
 
-		return copy_to_user((void __user *)arg, &map, minsz) ?
+		return copy_to_user((void __user *)arg, &param, minsz) ?
 			-EFAULT : 0;
-out:
-		return ret;
-	}
 	case VFIO_NETMDEV_TRANSITION_COMPLETE:
 		netmdev->drv_ops.transition_complete(netdev);
 		return 0;
