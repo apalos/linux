@@ -8,6 +8,7 @@ struct netmdev_driver {
 };
 
 struct iovamap {
+	struct list_head list;
 	u64 iova;
 	void *cookie;
 	struct device *dev;
@@ -22,9 +23,7 @@ struct netmdev {
 		struct {
 			struct net_device *netdev;
 			struct netmdev_driver_ops drv_ops;
-			/* FIXME USE A LINKED LIST */
-			int mappings_count;
-			struct iovamap mappings[128];
+			struct list_head mapping_list_head;
 		};
 	};
 	union {

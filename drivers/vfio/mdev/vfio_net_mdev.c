@@ -106,6 +106,8 @@ static ssize_t netdev_store(struct device *dev, struct device_attribute *attr,
 	netmdev = kzalloc(sizeof(struct netmdev), GFP_KERNEL);
 	if (!netmdev)
 		return -ENOMEM;
+
+	INIT_LIST_HEAD(&netmdev->mapping_list_head);
 	mdev_set_drvdata(mdev, netmdev);
 
 	if (count > IFNAMSIZ)
@@ -194,6 +196,7 @@ static void netmdev_dev_release(struct mdev_device *mdev)
 {
 	struct net_device *port;
 	struct netmdev *netmdev = mdev_get_drvdata(mdev);
+	struct iovamap *mapping, *n;
 
 	/* TODO export shadow stats to net_device */
 	if (!netmdev)
@@ -206,13 +209,15 @@ static void netmdev_dev_release(struct mdev_device *mdev)
 	port->priv_flags &= ~IFF_VFNETDEV;
 	netmdev->drv_ops.transition_back(port);
 
-	while (netmdev->mappings_count > 0) {
-		struct iovamap *mapping =
-		    &netmdev->mappings[--netmdev->mappings_count];
+	list_for_each_entry_safe(mapping, n, &netmdev->mapping_list_head,
+				 list) {
+		printk(KERN_ERR "stale mapping %d @ 0x%p -> 0x@%llx\n",
+		       mapping->size, mapping->cookie, mapping->iova);
 		dma_free_attrs(mapping->dev, mapping->size,
 			       mapping->cookie, mapping->iova,
 			       DMA_ATTR_NO_KERNEL_MAPPING |
 			       DMA_ATTR_WRITE_COMBINE);
+		list_del(&mapping->list);
 	}
 
 	netif_tx_start_all_queues(port);
@@ -235,9 +240,6 @@ static int netmdev_vfio_mmap_dma(struct mdev_device *mdev,
 	enum dma_data_direction direction;
 	struct vm_area_struct *vma;
 	struct iovamap *mapping;
-
-	if (netmdev->mappings_count >= ARRAY_SIZE(netmdev->mappings))
-		return -ENOMEM;
 
 	if (param->flags & ~(VFIO_DMA_MAP_FLAG_READ | VFIO_DMA_MAP_FLAG_WRITE))
 		return -EINVAL;
@@ -270,7 +272,8 @@ static int netmdev_vfio_mmap_dma(struct mdev_device *mdev,
 	}
 
 	/* Allocate new netmdev mapping */
-	mapping = &netmdev->mappings[netmdev->mappings_count++];
+	mapping = kzalloc(sizeof(*mapping), GFP_KERNEL);
+	INIT_LIST_HEAD(&mapping->list);
 	mapping->dev = mdev_parent_dev(mdev);
 	mapping->size = param->size;
 	mapping->direction = direction;
@@ -301,7 +304,7 @@ static int netmdev_vfio_mmap_dma(struct mdev_device *mdev,
 			    DMA_ATTR_NO_KERNEL_MAPPING |
 			    DMA_ATTR_WRITE_COMBINE);
 	if (!mapping->cookie) {
-		netmdev->mappings_count--;
+		kfree(mapping);
 		return -EFAULT;
 	}
 
@@ -314,7 +317,7 @@ static int netmdev_vfio_mmap_dma(struct mdev_device *mdev,
 			       mapping->cookie, mapping->iova,
 			       DMA_ATTR_NO_KERNEL_MAPPING |
 			       DMA_ATTR_WRITE_COMBINE);
-		netmdev->mappings_count--;
+		kfree(mapping);
 		return -EFAULT;
 	}
 #else
@@ -325,7 +328,7 @@ static int netmdev_vfio_mmap_dma(struct mdev_device *mdev,
 			       mapping->cookie, mapping->iova,
 			       DMA_ATTR_NO_KERNEL_MAPPING |
 			       DMA_ATTR_WRITE_COMBINE);
-		netmdev->mappings_count--;
+		kfree(mapping);
 		return -EFAULT;
 	}
 #endif
@@ -336,6 +339,8 @@ static int netmdev_vfio_mmap_dma(struct mdev_device *mdev,
 	printk(KERN_INFO
 	       "VFIO_IOMMU_MAP_DMA: new mapping %lld @ 0x%llx -> 0x@%llx\n",
 	       param->size, param->vaddr, param->iova);
+
+	list_add_tail(&mapping->list, &netmdev->mapping_list_head);
 
 	return 0;
 }
@@ -577,7 +582,7 @@ static struct netmdev_driver_ops *netmdev_get_driver_ops(struct device_driver *d
 			return	netmdev_known_drivers[i].drv_ops;
 		}
 	}
-	printk(KERN_ERR"netmdev_get_driver_ops could not find driver\n");
+	printk(KERN_ERR "netmdev_get_driver_ops could not find driver\n");
 	return NULL;
 }
 
