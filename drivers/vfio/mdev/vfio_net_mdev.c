@@ -337,12 +337,39 @@ static int netmdev_vfio_mmap_dma(struct mdev_device *mdev,
 	param->iova = mapping->iova;
 
 	printk(KERN_INFO
-	       "VFIO_IOMMU_MAP_DMA: new mapping %lld @ 0x%llx -> 0x@%llx\n",
-	       param->size, param->vaddr, param->iova);
+	       "VFIO_IOMMU_MAP_DMA: new mapping %d @ 0x%p -> 0x@%llx\n",
+	       mapping->size, mapping->cookie, mapping->iova);
 
 	list_add_tail(&mapping->list, &netmdev->mapping_list_head);
 
 	return 0;
+}
+
+static int netmdev_vfio_unmmap_dma(struct mdev_device *mdev,
+				   struct vfio_iommu_type1_dma_unmap
+				   *param)
+{
+	struct netmdev *netmdev = mdev_get_drvdata(mdev);
+	struct iovamap *mapping, *n;
+
+	list_for_each_entry_safe(mapping, n, &netmdev->mapping_list_head,
+				 list) {
+		if (param->iova == mapping->iova
+		    && param->size == mapping->size) {
+			printk(KERN_INFO
+			       "VFIO_IOMMU_UNMAP_DMA: remove mapping %d @ 0x%p -> 0x@%llx\n",
+			       mapping->size, mapping->cookie,
+			       mapping->iova);
+			dma_free_attrs(mapping->dev, mapping->size,
+				       mapping->cookie, mapping->iova,
+				       DMA_ATTR_NO_KERNEL_MAPPING |
+				       DMA_ATTR_WRITE_COMBINE);
+			list_del(&mapping->list);
+			return 0;
+		}
+	}
+
+	return -EINVAL;
 }
 
 static long netmdev_dev_ioctl(struct mdev_device *mdev, unsigned int cmd,
@@ -357,7 +384,8 @@ static long netmdev_dev_ioctl(struct mdev_device *mdev, unsigned int cmd,
 	struct vfio_info_cap caps = { .buf = NULL, .size = 0 };
 	struct vfio_region_info_cap_type cap_type;
 	struct net_mdev_bus_info bus_info = { .bus_max = 0, .extra = 0 };
-	struct vfio_iommu_type1_dma_map param;
+	struct vfio_iommu_type1_dma_map dma_map;
+	struct vfio_iommu_type1_dma_unmap dma_unmap;
 	int ret, cap_index;
 	int max_regions = 0;
 
@@ -455,18 +483,28 @@ static long netmdev_dev_ioctl(struct mdev_device *mdev, unsigned int cmd,
 	case VFIO_IOMMU_MAP_DMA:
 		minsz = offsetofend(struct vfio_iommu_type1_dma_map, size);
 
-		if (copy_from_user(&param, (void __user *)arg, minsz))
+		if (copy_from_user(&dma_map, (void __user *)arg, minsz))
 			ret = -EFAULT;
 
-		if (param.argsz < minsz)
+		if (dma_map.argsz < minsz)
 			return -EINVAL;
 
-		ret = netmdev_vfio_mmap_dma(mdev, &param);
+		ret = netmdev_vfio_mmap_dma(mdev, &dma_map);
 		if (ret < 0)
 			return ret;
 
-		return copy_to_user((void __user *)arg, &param, minsz) ?
+		return copy_to_user((void __user *)arg, &dma_map, minsz) ?
 			-EFAULT : 0;
+	case VFIO_IOMMU_UNMAP_DMA:
+		minsz = offsetofend(struct vfio_iommu_type1_dma_unmap, size);
+
+		if (copy_from_user(&dma_unmap, (void __user *)arg, minsz))
+			ret = -EFAULT;
+
+		if (dma_unmap.argsz < minsz)
+			return -EINVAL;
+
+		return netmdev_vfio_unmmap_dma(mdev, &dma_unmap);
 	case VFIO_NETMDEV_TRANSITION_COMPLETE:
 		netmdev->drv_ops.transition_complete(netdev);
 		return 0;
