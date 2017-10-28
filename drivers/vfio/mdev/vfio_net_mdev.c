@@ -273,6 +273,8 @@ static int netmdev_vfio_mmap_dma(struct mdev_device *mdev,
 
 	/* Allocate new netmdev mapping */
 	mapping = kzalloc(sizeof(*mapping), GFP_KERNEL);
+	if (!mapping)
+		return -ENOMEM;
 	INIT_LIST_HEAD(&mapping->list);
 	mapping->dev = mdev_parent_dev(mdev);
 	mapping->size = param->size;
