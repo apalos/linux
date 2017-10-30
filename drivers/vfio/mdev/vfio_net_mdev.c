@@ -507,11 +507,9 @@ static long netmdev_dev_ioctl(struct mdev_device *mdev, unsigned int cmd,
 			return -EINVAL;
 
 		return netmdev_vfio_unmmap_dma(mdev, &dma_unmap);
-	case VFIO_NETMDEV_TRANSITION_COMPLETE:
-		netmdev->drv_ops.transition_complete(netdev);
-		return 0;
 	case VFIO_DEVICE_RESET:
-		/* FIXME add callback */
+		/* FIXME add callback, figure a proper ioclt for this */
+		netmdev->drv_ops.transition_complete(netdev);
 		return 0;
         default:
                 return -EOPNOTSUPP;
