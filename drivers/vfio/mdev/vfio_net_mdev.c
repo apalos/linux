@@ -206,7 +206,6 @@ static void netmdev_dev_release(struct mdev_device *mdev)
 	if (!port)
 		return;
 
-	port->priv_flags &= ~IFF_VFNETDEV;
 	netmdev->drv_ops.transition_back(port);
 
 	list_for_each_entry_safe(mapping, n, &netmdev->mapping_list_head,
@@ -221,6 +220,7 @@ static void netmdev_dev_release(struct mdev_device *mdev)
 	}
 
 	netif_tx_start_all_queues(port);
+	port->priv_flags &= ~IFF_VFNETDEV;
 
 	return;
 }
