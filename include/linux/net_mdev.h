@@ -29,7 +29,6 @@ struct net_mdev_bus_info {
 
 struct netmdev_driver_ops {
 	int (*transition_start)(struct net_device *ndev);
-	int (*transition_complete)(struct net_device *ndev);
 	int (*transition_back)(struct net_device *ndev);
 	int (*get_mmap_info)(struct net_device* netdev, u32 index,
 			     unsigned long *pfn, unsigned long *nr_pages);

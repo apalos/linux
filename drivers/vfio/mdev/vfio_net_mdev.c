@@ -182,7 +182,9 @@ static int netmdev_dev_open(struct mdev_device *mdev)
 	port = get_netdev(mdev);
 	if (!port)
 		return -ENODEV;
+
 	netif_tx_stop_all_queues(port);
+
 	port->priv_flags |= IFF_VFNETDEV;
 	netmdev->drv_ops.transition_start(port);
 
@@ -206,6 +208,7 @@ static void netmdev_dev_release(struct mdev_device *mdev)
 	if (!port)
 		return;
 
+	port->priv_flags &= ~IFF_VFNETDEV;
 	netmdev->drv_ops.transition_back(port);
 
 	list_for_each_entry_safe(mapping, n, &netmdev->mapping_list_head,
@@ -220,7 +223,6 @@ static void netmdev_dev_release(struct mdev_device *mdev)
 	}
 
 	netif_tx_start_all_queues(port);
-	port->priv_flags &= ~IFF_VFNETDEV;
 
 	return;
 }
@@ -507,10 +509,6 @@ static long netmdev_dev_ioctl(struct mdev_device *mdev, unsigned int cmd,
 			return -EINVAL;
 
 		return netmdev_vfio_unmmap_dma(mdev, &dma_unmap);
-	case VFIO_DEVICE_RESET:
-		/* FIXME add callback, figure a proper ioclt for this */
-		netmdev->drv_ops.transition_complete(netdev);
-		return 0;
         default:
                 return -EOPNOTSUPP;
 	}
@@ -588,9 +586,8 @@ static const struct mdev_parent_ops netmdev_sysfs_ops = {
 static int netmdev_check_cbacks(struct netmdev_driver_ops *drv_ops)
 {
 	return (!drv_ops || !drv_ops->transition_start ||
-		!drv_ops->transition_complete || !drv_ops->get_region_info ||
-		!drv_ops->transition_back || !drv_ops->get_mmap_info ||
-		!drv_ops->get_device_info);
+		!drv_ops->get_region_info || !drv_ops->transition_back ||
+		!drv_ops->get_mmap_info || !drv_ops->get_device_info);
 }
 
 /* netmdev_driver stuff */

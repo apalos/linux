@@ -43,13 +43,6 @@ static int e1000e_transition_start(struct net_device *netdev)
 	else
 		e1000e_reset(adapter);
 
-	return 0;
-}
-
-static int e1000e_transition_complete(struct net_device *netdev)
-{
-	struct e1000_adapter *adapter = netdev_priv(netdev);
-
 	e1000e_trigger_lsc(adapter);
 
 	return 0;
@@ -202,7 +195,6 @@ static int e1000e_get_irq_info(struct net_device *netdev,
 
 static struct netmdev_driver_ops e1000e_netmdev_driver_ops = {
 	.transition_start = e1000e_transition_start,
-	.transition_complete = e1000e_transition_complete,
 	.transition_back = e1000e_transition_back,
 	.get_device_info = e1000e_get_device_info,
 	.get_bus_info = e1000e_get_bus_info,

@@ -922,7 +922,7 @@ static void rtl_irq_enable_all(struct rtl8169_private *tp)
 	rtl_irq_enable(tp, RTL_EVENT_NAPI | tp->event_slow);
 }
 
-static void rtl8169_irq_mask_and_ack(struct rtl8169_private *tp)
+void rtl8169_irq_mask_and_ack(struct rtl8169_private *tp)
 {
 	void __iomem *ioaddr = tp->mmio_addr;
 
@@ -4655,7 +4655,7 @@ static void rtl_set_rx_tx_config_registers(struct rtl8169_private *tp)
 		(InterFrameGap << TxInterFrameGapShift));
 }
 
-void rtl_hw_start(struct net_device *dev)
+static void rtl_hw_start(struct net_device *dev)
 {
 	struct rtl8169_private *tp = netdev_priv(dev);
 
@@ -6227,13 +6227,13 @@ static void rtl8169_tx_clear_range(struct rtl8169_private *tp, u32 start,
 	}
 }
 
-static void rtl8169_tx_clear(struct rtl8169_private *tp)
+void rtl8169_tx_clear(struct rtl8169_private *tp)
 {
 	rtl8169_tx_clear_range(tp, tp->dirty_tx, NUM_TX_DESC);
 	tp->cur_tx = tp->dirty_tx = 0;
 }
 
-static void rtl_reset_work(struct rtl8169_private *tp)
+void rtl_reset_work(struct rtl8169_private *tp)
 {
 	struct net_device *dev = tp->dev;
 	int i;
@@ -6260,7 +6260,8 @@ static void rtl8169_tx_timeout(struct net_device *dev)
 {
 	struct rtl8169_private *tp = netdev_priv(dev);
 
-	rtl_schedule_task(tp, RTL_FLAG_TASK_RESET_PENDING);
+	if (!(dev->priv_flags & IFF_VFNETDEV))
+		rtl_schedule_task(tp, RTL_FLAG_TASK_RESET_PENDING);
 }
 
 static int rtl8169_xmit_frags(struct rtl8169_private *tp, struct sk_buff *skb,
@@ -6508,8 +6509,6 @@ static netdev_tx_t rtl8169_start_xmit(struct sk_buff *skb,
 	u32 opts[2];
 	int frags;
 
-	if (dev->priv_flags & IFF_VFNETDEV)
-		goto vf_netdev_ok;
 	if (unlikely(!TX_FRAGS_READY_FOR(tp, skb_shinfo(skb)->nr_frags))) {
 		netif_err(tp, drv, dev, "BUG! Tx Ring full when queue awake!\n");
 		goto err_stop_0;
@@ -6587,9 +6586,6 @@ static netdev_tx_t rtl8169_start_xmit(struct sk_buff *skb,
 
 	return NETDEV_TX_OK;
 
-vf_netdev_ok:
-	dev_kfree_skb_any(skb);
-	return NETDEV_TX_OK;
 err_dma_1:
 	rtl8169_unmap_tx_skb(d, tp->tx_skb + entry, txd);
 err_dma_0:
@@ -6755,10 +6751,6 @@ static int rtl_rx(struct net_device *dev, struct rtl8169_private *tp, u32 budget
 	unsigned int cur_rx, rx_left;
 	unsigned int count;
 
-#if defined(CONFIG_VFIO_MDEV_NET_DEVICE) || defined(CONFIG_VFIO_MDEV_NET_DEVICE_MODULE)
-	if (dev->priv_flags & IFF_VFNETDEV)
-		return budget ;
-#endif
 	cur_rx = tp->cur_rx;
 
 	for (rx_left = min(budget, NUM_RX_DESC); rx_left > 0; rx_left--, cur_rx++) {
@@ -6943,11 +6935,6 @@ static int rtl8169_poll(struct napi_struct *napi, int budget)
 	int work_done= 0;
 	u16 status;
 
-#if defined(CONFIG_VFIO_MDEV_NET_DEVICE) || defined(CONFIG_VFIO_MDEV_NET_DEVICE_MODULE)
-	if (dev->priv_flags & IFF_VFNETDEV)
-		return budget;
-#endif
-
 	status = rtl_get_events(tp);
 	rtl_ack_events(tp, status & ~tp->event_slow);
 
@@ -7071,19 +7058,11 @@ static int rtl_open(struct net_device *dev)
 	if (!tp->TxDescArray)
 		goto err_pm_runtime_put;
 
-#if defined(CONFIG_VFIO_MDEV_NET_DEVICE) || defined(CONFIG_VFIO_MDEV_NET_DEVICE_MODULE)
-	printk(KERN_INFO"TxDescArray KVA(@%p) -> PA(%llx) <- IOVA(%llx)\n",
-	       tp->TxDescArray, virt_to_phys(tp->TxDescArray), tp->TxPhyAddr);
-#endif
 	tp->RxDescArray = dma_alloc_coherent(&pdev->dev, R8169_RX_RING_BYTES,
 					     &tp->RxPhyAddr, GFP_KERNEL);
 	if (!tp->RxDescArray)
 		goto err_free_tx_0;
 
-#if defined(CONFIG_VFIO_MDEV_NET_DEVICE) || defined(CONFIG_VFIO_MDEV_NET_DEVICE_MODULE)
-	printk(KERN_INFO"RxDescArray KVA(@%p) -> PA(%llx) <- IOVA(%llx)\n",
-	       tp->RxDescArray, virt_to_phys(tp->RxDescArray), tp->RxPhyAddr);
-#endif
 	retval = rtl8169_init_ring(dev);
 	if (retval < 0)
 		goto err_free_rx_1;

@@ -9,8 +9,10 @@
 extern void rtl8169_rx_clear(struct rtl8169_private *tp);
 extern void rtl_set_rx_tx_desc_registers(struct rtl8169_private *tp,
 					 void __iomem *ioaddr);
-extern void rtl_hw_start(struct net_device *dev);
+extern void rtl_reset_work(struct rtl8169_private *tp);
+extern void rtl8169_irq_mask_and_ack(struct rtl8169_private *tp);
 extern int rtl8169_init_ring(struct net_device *dev);
+extern void rtl8169_tx_clear(struct rtl8169_private *tp);
 
 static int r8169_transition_start(struct net_device* netdev)
 {
@@ -22,25 +24,14 @@ static int r8169_transition_start(struct net_device* netdev)
 		return -EINVAL;
 
 	ioaddr = tp->mmio_addr;
-	RTL_W8(ChipCmd, RTL_R8(ChipCmd) & ~(CmdTxEnb | CmdRxEnb));
-	/* deallocate kernel buffers from ring */
+
+	rtl8169_irq_mask_and_ack(tp);
+	/* free kernel buffers of the ring */
 	rtl8169_rx_clear(netdev_priv(netdev));
+	rtl8169_tx_clear(netdev_priv(netdev));
+	/* remap descriptors, since rtl8169_rx_clear() makes them unusable */
 	rtl_set_rx_tx_desc_registers(tp, ioaddr);
-	return 0;
-}
 
-static int r8169_transition_complete(struct net_device* netdev)
-{
-	void __iomem *ioaddr;
-	struct rtl8169_private *tp;
-
-	tp = netdev_priv(netdev);
-	if (!tp)
-		return -EINVAL;
-
-	ioaddr = tp->mmio_addr;
-	rtl_hw_start(netdev);
-	RTL_W8(ChipCmd, CmdTxEnb | CmdRxEnb);
 	return 0;
 }
 
@@ -48,14 +39,20 @@ static int r8169_transition_back(struct net_device* netdev)
 {
 	void __iomem *ioaddr;
 	struct rtl8169_private *tp;
+	int ret = 0;
+
 	tp = netdev_priv(netdev);
 	if (!tp)
 		return -EINVAL;
 
 	ioaddr = tp->mmio_addr;
-	rtl8169_init_ring(netdev);
-	rtl_hw_start(netdev);
-	RTL_W8(ChipCmd, CmdTxEnb | CmdRxEnb);
+
+	/* allocate buffers for the ring */
+	ret = rtl8169_init_ring(netdev);
+	if (ret)
+		return -EINVAL;
+	rtl_reset_work(tp);
+
 	return 0;
 }
 
@@ -203,7 +200,6 @@ static int r8169_get_irq(struct net_device *netdev, struct vfio_irq_info *info)
 struct netmdev_driver_ops rtl8169_netmdev_driver_ops =
 {
 	.transition_start = r8169_transition_start,
-	.transition_complete = r8169_transition_complete,
 	.transition_back = r8169_transition_back,
 	.get_region_info = r8169_get_region,
 	.get_cap_info = r8169_get_extra_regions,
