@@ -27,8 +27,8 @@ static int r8169_transition_start(struct net_device* netdev)
 
 	rtl8169_irq_mask_and_ack(tp);
 	/* free kernel buffers of the ring */
-	rtl8169_rx_clear(netdev_priv(netdev));
-	rtl8169_tx_clear(netdev_priv(netdev));
+	rtl8169_rx_clear(tp);
+	rtl8169_tx_clear(tp);
 	/* remap descriptors, since rtl8169_rx_clear() makes them unusable */
 	rtl_set_rx_tx_desc_registers(tp, ioaddr);
 
@@ -40,6 +40,7 @@ static int r8169_transition_back(struct net_device* netdev)
 	void __iomem *ioaddr;
 	struct rtl8169_private *tp;
 	int ret = 0;
+	int i;
 
 	tp = netdev_priv(netdev);
 	if (!tp)
@@ -51,6 +52,11 @@ static int r8169_transition_back(struct net_device* netdev)
 	ret = rtl8169_init_ring(netdev);
 	if (ret)
 		return -EINVAL;
+	for (i = 0; i < NUM_TX_DESC; i++) {
+		tp->TxDescArray[i].opts1 = cpu_to_le32(0x00);
+		tp->TxDescArray[i].opts2 = cpu_to_le32(0x00);
+	}
+
 	rtl_reset_work(tp);
 
 	return 0;
