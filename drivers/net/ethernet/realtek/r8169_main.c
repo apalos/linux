@@ -4655,13 +4655,14 @@ static void rtl_set_rx_tx_config_registers(struct rtl8169_private *tp)
 		(InterFrameGap << TxInterFrameGapShift));
 }
 
-static void rtl_hw_start(struct net_device *dev)
+static void rtl_hw_start(struct net_device *dev, int irq_en)
 {
 	struct rtl8169_private *tp = netdev_priv(dev);
 
 	tp->hw_start(dev);
 
-	rtl_irq_enable_all(tp);
+	if (irq_en)
+		rtl_irq_enable_all(tp);
 }
 
 void rtl_set_rx_tx_desc_registers(struct rtl8169_private *tp,
@@ -6251,7 +6252,7 @@ void rtl_reset_work(struct rtl8169_private *tp)
 	rtl8169_init_ring_indexes(tp);
 
 	napi_enable(&tp->napi);
-	rtl_hw_start(dev);
+	rtl_hw_start(dev, 1);
 	netif_wake_queue(dev);
 	rtl8169_check_link_status(dev, tp, tp->mmio_addr);
 }
@@ -7012,7 +7013,7 @@ void r8169_mdev_prepare(struct net_device *dev)
 	rtl8169_rx_missed(dev, ioaddr);
 	synchronize_sched();
 	rtl_set_rx_tx_desc_registers(tp, ioaddr);
-	rtl_hw_start(dev);
+	rtl_hw_start(dev, 0);
 
 	rtl_unlock_work(tp);
 }
@@ -7138,7 +7139,7 @@ static int rtl_open(struct net_device *dev)
 
 	rtl_pll_power_up(tp);
 
-	rtl_hw_start(dev);
+	rtl_hw_start(dev, 1);
 
 	if (!rtl8169_init_counter_offsets(dev))
 		netif_warn(tp, hw, dev, "counter reset/update failed\n");
