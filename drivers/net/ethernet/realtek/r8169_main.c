@@ -6999,6 +6999,53 @@ static void rtl8169_down(struct net_device *dev)
 	rtl_pll_power_down(tp);
 }
 
+void r8169_mdev_prepare(struct net_device *dev)
+{
+	struct rtl8169_private *tp = netdev_priv(dev);
+	void __iomem *ioaddr = tp->mmio_addr;
+
+	clear_bit(RTL_FLAG_TASK_ENABLED, tp->wk.flags);
+
+	rtl_lock_work(tp);
+
+	rtl8169_hw_reset(tp);
+	rtl8169_rx_missed(dev, ioaddr);
+	synchronize_sched();
+	rtl_set_rx_tx_desc_registers(tp, ioaddr);
+	rtl_hw_start(dev);
+
+	rtl_unlock_work(tp);
+}
+
+int r8169_mdev_destroy(struct net_device *dev)
+{
+	struct rtl8169_private *tp = netdev_priv(dev);
+	int ret;
+	int i;
+
+	/* remap descriptors, since rtl8169_rx_clear() used in
+	 * r8169_mdev_prepare makes them unusable
+	 */
+	ret = rtl8169_init_ring(dev);
+	if (ret)
+		return -EINVAL;
+
+	rtl_lock_work(tp);
+
+	for (i = 0; i < NUM_TX_DESC; i++) {
+		tp->TxDescArray[i].opts1 = cpu_to_le32(0x00);
+		tp->TxDescArray[i].opts2 = cpu_to_le32(0x00);
+	}
+
+	rtl_reset_work(tp);
+
+	rtl_unlock_work(tp);
+
+	set_bit(RTL_FLAG_TASK_ENABLED, tp->wk.flags);
+
+	return ret;
+}
+
 static int rtl8169_close(struct net_device *dev)
 {
 	struct rtl8169_private *tp = netdev_priv(dev);

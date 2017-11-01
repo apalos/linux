@@ -6,13 +6,14 @@
 #include <linux/netdevice.h>
 
 #include "r8169_private.h"
-extern void rtl8169_rx_clear(struct rtl8169_private *tp);
 extern void rtl_set_rx_tx_desc_registers(struct rtl8169_private *tp,
 					 void __iomem *ioaddr);
 extern void rtl_reset_work(struct rtl8169_private *tp);
-extern void rtl8169_irq_mask_and_ack(struct rtl8169_private *tp);
 extern int rtl8169_init_ring(struct net_device *dev);
-extern void rtl8169_tx_clear(struct rtl8169_private *tp);
+
+void r8169_mdev_close(struct net_device *dev);
+void r8169_mdev_prepare(struct net_device *dev);
+int r8169_mdev_destroy(struct net_device *dev);
 
 static int r8169_transition_start(struct net_device* netdev)
 {
@@ -25,12 +26,7 @@ static int r8169_transition_start(struct net_device* netdev)
 
 	ioaddr = tp->mmio_addr;
 
-	rtl8169_irq_mask_and_ack(tp);
-	/* free kernel buffers of the ring */
-	rtl8169_rx_clear(tp);
-	rtl8169_tx_clear(tp);
-	/* remap descriptors, since rtl8169_rx_clear() makes them unusable */
-	rtl_set_rx_tx_desc_registers(tp, ioaddr);
+	r8169_mdev_prepare(netdev);
 
 	return 0;
 }
@@ -39,8 +35,6 @@ static int r8169_transition_back(struct net_device* netdev)
 {
 	void __iomem *ioaddr;
 	struct rtl8169_private *tp;
-	int ret = 0;
-	int i;
 
 	tp = netdev_priv(netdev);
 	if (!tp)
@@ -48,18 +42,7 @@ static int r8169_transition_back(struct net_device* netdev)
 
 	ioaddr = tp->mmio_addr;
 
-	/* allocate buffers for the ring */
-	ret = rtl8169_init_ring(netdev);
-	if (ret)
-		return -EINVAL;
-	for (i = 0; i < NUM_TX_DESC; i++) {
-		tp->TxDescArray[i].opts1 = cpu_to_le32(0x00);
-		tp->TxDescArray[i].opts2 = cpu_to_le32(0x00);
-	}
-
-	rtl_reset_work(tp);
-
-	return 0;
+	return r8169_mdev_destroy(netdev);
 }
 
 static int r8169_get_mmap(struct net_device *netdev, u32 index,
