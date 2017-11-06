@@ -4225,9 +4225,9 @@ void e1000e_up(struct e1000_adapter *adapter)
 
 	if (!(adapter->netdev->priv_flags & IFF_VFNETDEV)) {
 		netif_start_queue(adapter->netdev);
-
-		e1000e_trigger_lsc(adapter);
 	}
+
+	e1000e_trigger_lsc(adapter);
 }
 
 static void e1000e_flush_descriptors(struct e1000_adapter *adapter)

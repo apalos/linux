@@ -38,12 +38,12 @@ static int e1000e_transition_start(struct net_device *netdev)
 	    E1000_IMS_RXT0 | E1000_IMS_TXDW |
 	    E1000_IMS_RXDMT0 | E1000_IMS_RXSEQ;
 
+	netif_carrier_off(netdev);
+
 	if (netif_running(netdev))
 		e1000e_reinit_locked(adapter);
 	else
 		e1000e_reset(adapter);
-
-	e1000e_trigger_lsc(adapter);
 
 	return 0;
 }
