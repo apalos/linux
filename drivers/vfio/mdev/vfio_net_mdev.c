@@ -378,7 +378,7 @@ static int netmdev_vfio_unmmap_dma(struct mdev_device *mdev,
 
 static struct
 vfio_region_info_cap_sparse_mmap *netmdev_fill_sparse(struct mdev_device *mdev,
-						      int nr_areas)
+						      int region_index, int nr_areas)
 {
 	int i;
 	struct vfio_region_info_cap_sparse_mmap *sparse = NULL;
@@ -395,7 +395,8 @@ vfio_region_info_cap_sparse_mmap *netmdev_fill_sparse(struct mdev_device *mdev,
 		goto out_err;
 
 	for (i = 0; i < nr_areas; i++) {
-		ret = netmdev->drv_ops.get_sparse_info(netdev, &size, &offset);
+		ret = netmdev->drv_ops.get_sparse_info(netdev, &size, &offset,
+						       region_index, i);
 		if (ret)
 			goto out_err;
 		sparse->areas[i].offset = offset;
@@ -422,11 +423,11 @@ static long netmdev_dev_ioctl(struct mdev_device *mdev, unsigned int cmd,
 	struct vfio_info_cap caps = { .buf = NULL, .size = 0 };
 	struct vfio_region_info_cap_type cap_type;
 	struct vfio_region_info_cap_sparse_mmap *sparse = NULL;
-	int sparse_areas = 0;
+	int nr_areas = 0;
 	struct net_mdev_bus_info bus_info = { .bus_max = 0, .extra = 0 };
 	struct vfio_iommu_type1_dma_map dma_map;
 	struct vfio_iommu_type1_dma_unmap dma_unmap;
-	int ret, cap_index;
+	int ret, region_index;
 	int max_regions = 0;
 
 	if (!mdev)
@@ -470,9 +471,10 @@ static long netmdev_dev_ioctl(struct mdev_device *mdev, unsigned int cmd,
 		if (reg_info.index < bus_info.bus_max) {
 			ret = netmdev->drv_ops.get_region_info(netdev, &reg_info);
 		} else {
-			cap_index = reg_info.index - bus_info.bus_max;
-			ret = netmdev->drv_ops.get_cap_info(netdev, cap_index,
-							    &cap_type, &reg_info, &sparse_areas);
+			region_index = reg_info.index - bus_info.bus_max;
+			ret = netmdev->drv_ops.get_cap_info(netdev, region_index,
+							    &cap_type, &reg_info,
+							    &nr_areas);
 			if (ret)
 				return -EINVAL;
 
@@ -482,14 +484,12 @@ static long netmdev_dev_ioctl(struct mdev_device *mdev, unsigned int cmd,
 			if (ret)
 				return ret;
 
-			sparse = netmdev_fill_sparse(mdev, sparse_areas);
+			sparse = netmdev_fill_sparse(mdev, region_index, nr_areas);
 			if (sparse) {
-			ret = vfio_info_add_capability(&caps,
-				VFIO_REGION_INFO_CAP_SPARSE_MMAP,
-				sparse);
+				ret = vfio_info_add_capability(&caps,
+					VFIO_REGION_INFO_CAP_SPARSE_MMAP, sparse);
 				kfree(sparse);
 			}
-
 			if (ret)
 				return ret;
 		}
