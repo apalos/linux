@@ -36,7 +36,8 @@ struct netmdev_driver_ops {
 			       struct vfio_region_info *info);
 	int (*get_cap_info)(struct net_device *ndev, u32 region,
 			    struct vfio_region_info_cap_type *cap_type,
-			    struct vfio_region_info *info);
+			    struct vfio_region_info *info, int *sparse_areas);
+	int (*get_sparse_info)(struct net_device *ndev, u64 *offset, u64 *size);
 	int (*get_device_info)(struct net_device *ndev,
 			       struct vfio_device_info *info);
 	int (*get_irq_info)(struct net_device *ndev,

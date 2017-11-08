@@ -109,7 +109,7 @@ static int e1000e_get_region_info(struct net_device *netdev,
 
 static int e1000e_get_cap_info(struct net_device *netdev, u32 region,
 			       struct vfio_region_info_cap_type *cap_type,
-			       struct vfio_region_info *info)
+			       struct vfio_region_info *info, int *sparse)
 {
 	struct e1000_adapter *adapter = netdev_priv(netdev);
 
@@ -138,6 +138,7 @@ static int e1000e_get_cap_info(struct net_device *netdev, u32 region,
 	default:
 		return -EINVAL;
 	}
+	*sparse = 0;
 
 	info->offset =
 	    VFIO_PCI_INDEX_TO_OFFSET(region + VFIO_PCI_NUM_REGIONS);

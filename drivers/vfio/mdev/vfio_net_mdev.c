@@ -376,6 +376,40 @@ static int netmdev_vfio_unmmap_dma(struct mdev_device *mdev,
 	return -EINVAL;
 }
 
+static struct
+vfio_region_info_cap_sparse_mmap *netmdev_fill_sparse(struct mdev_device *mdev,
+						      int nr_areas)
+{
+	int i;
+	struct vfio_region_info_cap_sparse_mmap *sparse = NULL;
+	struct netmdev *netmdev;
+	struct net_device *netdev;
+	u64 size, offset;
+	int ret;
+
+	netdev = get_netdev(mdev);
+	netmdev = mdev_get_drvdata(mdev);
+	size = sizeof(*sparse) + (nr_areas * sizeof(*sparse->areas));
+	sparse = kzalloc(size, GFP_KERNEL);
+	if (!sparse)
+		goto out_err;
+
+	for (i = 0; i < nr_areas; i++) {
+		ret = netmdev->drv_ops.get_sparse_info(netdev, &size, &offset);
+		if (ret)
+			goto out_err;
+		sparse->areas[i].offset = offset;
+		sparse->areas[i].size = size;
+	}
+	sparse->nr_areas = nr_areas;
+
+	return sparse;
+out_err:
+	if (sparse)
+		kfree(sparse);
+	return NULL;
+}
+
 static long netmdev_dev_ioctl(struct mdev_device *mdev, unsigned int cmd,
 			      unsigned long arg)
 {
@@ -387,6 +421,8 @@ static long netmdev_dev_ioctl(struct mdev_device *mdev, unsigned int cmd,
 	struct vfio_irq_info irq_info;
 	struct vfio_info_cap caps = { .buf = NULL, .size = 0 };
 	struct vfio_region_info_cap_type cap_type;
+	struct vfio_region_info_cap_sparse_mmap *sparse = NULL;
+	int sparse_areas = 0;
 	struct net_mdev_bus_info bus_info = { .bus_max = 0, .extra = 0 };
 	struct vfio_iommu_type1_dma_map dma_map;
 	struct vfio_iommu_type1_dma_unmap dma_unmap;
@@ -436,13 +472,24 @@ static long netmdev_dev_ioctl(struct mdev_device *mdev, unsigned int cmd,
 		} else {
 			cap_index = reg_info.index - bus_info.bus_max;
 			ret = netmdev->drv_ops.get_cap_info(netdev, cap_index,
-							    &cap_type, &reg_info);
+							    &cap_type, &reg_info, &sparse_areas);
 			if (ret)
 				return -EINVAL;
 
 			ret = vfio_info_add_capability(&caps,
 						VFIO_REGION_INFO_CAP_TYPE,
 						&cap_type);
+			if (ret)
+				return ret;
+
+			sparse = netmdev_fill_sparse(mdev, sparse_areas);
+			if (sparse) {
+			ret = vfio_info_add_capability(&caps,
+				VFIO_REGION_INFO_CAP_SPARSE_MMAP,
+				sparse);
+				kfree(sparse);
+			}
+
 			if (ret)
 				return ret;
 		}

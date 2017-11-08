@@ -82,7 +82,7 @@ static int r8169_get_mmap(struct net_device *netdev, u32 index,
 
 static int r8169_get_extra_regions(struct net_device *ndev, u32 region,
 				   struct vfio_region_info_cap_type *cap_type,
-				   struct vfio_region_info *info)
+				   struct vfio_region_info *info, int *sparse)
 {
 	if (region >= VFIO_NET_MDEV_NUM_REGIONS)
 		return -EINVAL;
@@ -109,6 +109,7 @@ static int r8169_get_extra_regions(struct net_device *ndev, u32 region,
 	default:
 		return -EINVAL;
 	}
+	*sparse = 0;
 
 	info->offset = VFIO_PCI_INDEX_TO_OFFSET(region + VFIO_PCI_NUM_REGIONS);
 	info->flags = VFIO_REGION_INFO_FLAG_READ |
