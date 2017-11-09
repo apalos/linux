@@ -1,6 +1,7 @@
 #include <linux/module.h>
 #include <linux/mii.h>
 #include <linux/pci.h>
+#include <linux/mdev.h>
 #include <linux/net_mdev.h>
 #include <uapi/linux/net_mdev.h>
 #include <linux/netdevice.h>
@@ -15,8 +16,9 @@ void r8169_mdev_close(struct net_device *dev);
 void r8169_mdev_prepare(struct net_device *dev);
 int r8169_mdev_destroy(struct net_device *dev);
 
-static int r8169_transition_start(struct net_device* netdev)
+static int r8169_transition_start(struct mdev_device *mdev)
 {
+	struct net_device *netdev = mdev_get_netdev(mdev);
 	void __iomem *ioaddr;
 	struct rtl8169_private *tp;
 
@@ -31,8 +33,9 @@ static int r8169_transition_start(struct net_device* netdev)
 	return 0;
 }
 
-static int r8169_transition_back(struct net_device* netdev)
+static int r8169_transition_back(struct mdev_device *mdev)
 {
+	struct net_device *netdev = mdev_get_netdev(mdev);
 	void __iomem *ioaddr;
 	struct rtl8169_private *tp;
 
@@ -45,9 +48,10 @@ static int r8169_transition_back(struct net_device* netdev)
 	return r8169_mdev_destroy(netdev);
 }
 
-static int r8169_get_mmap(struct net_device *netdev, u32 index,
+static int r8169_get_mmap(struct mdev_device *mdev, u32 index,
 			  unsigned long *pfn, unsigned long *nr_pages)
 {
+	struct net_device *netdev = mdev_get_netdev(mdev);
 	struct rtl8169_private *tp = netdev_priv(netdev);
 	phys_addr_t start = 0;
 	u64 len = 0;
@@ -80,9 +84,9 @@ static int r8169_get_mmap(struct net_device *netdev, u32 index,
 	return 0;
 }
 
-static int r8169_get_extra_regions(struct net_device *ndev, u32 region,
+static int r8169_get_extra_regions(struct mdev_device *mdev, u32 region,
 				   struct vfio_region_info_cap_type *cap_type,
-				   struct vfio_region_info *info, int *sparse)
+				   struct vfio_region_info *info, int *nr_areas)
 {
 	if (region >= VFIO_NET_MDEV_NUM_REGIONS)
 		return -EINVAL;
@@ -109,7 +113,7 @@ static int r8169_get_extra_regions(struct net_device *ndev, u32 region,
 	default:
 		return -EINVAL;
 	}
-	*sparse = 0;
+	*nr_areas = 0;
 
 	info->offset = VFIO_PCI_INDEX_TO_OFFSET(region + VFIO_PCI_NUM_REGIONS);
 	info->flags = VFIO_REGION_INFO_FLAG_READ |
@@ -120,9 +124,10 @@ static int r8169_get_extra_regions(struct net_device *ndev, u32 region,
 	return 0;
 }
 
-static int r8169_get_region(struct net_device *netdev, struct vfio_region_info *info)
+static int r8169_get_region(struct mdev_device *mdev, struct vfio_region_info *info)
 
 {
+	struct net_device *netdev = mdev_get_netdev(mdev);
 	struct rtl8169_private *tp;
 	struct pci_dev *pdev;
 
@@ -157,32 +162,15 @@ static int r8169_get_region(struct net_device *netdev, struct vfio_region_info *
 	return 0;
 }
 
-static int r8169_bus_info(struct net_device *netdev, struct net_mdev_bus_info *bus_info)
+static int r8169_init_vdev(struct mdev_device *mdev)
 {
-	bus_info->bus_max = VFIO_PCI_NUM_REGIONS;
-	bus_info->extra = VFIO_NET_MDEV_NUM_REGIONS;
+	struct netmdev *netmdev = mdev_get_drvdata(mdev);
 
-	return 0;
-}
+	netmdev->vdev->bus_regions = VFIO_PCI_NUM_REGIONS;
+	netmdev->vdev->extra_regions = VFIO_NET_MDEV_NUM_REGIONS;
 
-static int r8169_get_dev(struct net_device *netdev, struct vfio_device_info *info)
-{
-	struct net_mdev_bus_info bus_info;
-
-	r8169_bus_info(netdev, &bus_info);
-
-	info->flags = VFIO_DEVICE_FLAGS_PCI;
-	info->num_regions = bus_info.bus_max + bus_info.extra;
-	info->num_irqs = 1;
-
-	return 0;
-}
-
-static int r8169_get_irq(struct net_device *netdev, struct vfio_irq_info *info)
-{
-	info->flags = VFIO_IRQ_INFO_EVENTFD | VFIO_IRQ_INFO_MASKABLE |
-			VFIO_IRQ_INFO_AUTOMASKED;
-	info->count = 1;
+	netmdev->vdev->bus_flags = VFIO_DEVICE_FLAGS_PCI;
+	netmdev->vdev->num_irqs = 1;
 
 	return 0;
 }
@@ -194,9 +182,6 @@ struct netmdev_driver_ops rtl8169_netmdev_driver_ops =
 	.get_region_info = r8169_get_region,
 	.get_cap_info = r8169_get_extra_regions,
 	.get_mmap_info = r8169_get_mmap,
-	.get_device_info = r8169_get_dev,
-	.get_irq_info = r8169_get_irq,
-	.get_bus_info = r8169_bus_info,
 };
 
 void r8169_register_netmdev(struct device *dev)
@@ -211,6 +196,7 @@ void r8169_register_netmdev(struct device *dev)
 	else
 		dev_info(dev, "Successfully registered net_mdev device\n");
 	symbol_put(netmdev_register_device);
+
 }
 
 void r8169_unregister_netmdev(struct device *dev)

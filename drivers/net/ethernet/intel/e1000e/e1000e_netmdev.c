@@ -25,11 +25,9 @@
 #include "e1000.h"
 #include "e1000e_netmdev.h"
 
-static int e1000e_get_bus_info(struct net_device *netdev,
-			       struct net_mdev_bus_info *bus_info);
-
-static int e1000e_transition_start(struct net_device *netdev)
+static int e1000e_transition_start(struct mdev_device *mdev)
 {
+	struct net_device *netdev = mdev_get_netdev(mdev);
 	struct e1000_adapter *adapter = netdev_priv(netdev);
 
 	dev_hold(netdev);
@@ -48,8 +46,9 @@ static int e1000e_transition_start(struct net_device *netdev)
 	return 0;
 }
 
-static int e1000e_transition_back(struct net_device *netdev)
+static int e1000e_transition_back(struct mdev_device *mdev)
 {
+	struct net_device *netdev = mdev_get_netdev(mdev);
 	struct e1000_adapter *adapter = netdev_priv(netdev);
 
 	adapter->irq_mask = 0;
@@ -64,32 +63,23 @@ static int e1000e_transition_back(struct net_device *netdev)
 	return 0;
 }
 
-static int e1000e_get_device_info(struct net_device *netdev,
-				  struct vfio_device_info *info)
+static int e1000e_init_vdev(struct mdev_device *mdev)
 {
-	struct net_mdev_bus_info bus_info;
+	struct netmdev *netmdev = mdev_get_drvdata(mdev);
 
-	e1000e_get_bus_info(netdev, &bus_info);
+	netmdev->vdev->bus_regions = VFIO_PCI_NUM_REGIONS;
+	netmdev->vdev->extra_regions = VFIO_NET_MDEV_NUM_REGIONS;
 
-	info->flags = VFIO_DEVICE_FLAGS_PCI;
-	info->num_regions = bus_info.bus_max + bus_info.extra;
-	info->num_irqs = 1;
+	netmdev->vdev->bus_flags = VFIO_DEVICE_FLAGS_PCI;
+	netmdev->vdev->num_irqs = 1;
 
 	return 0;
 }
 
-static int e1000e_get_bus_info(struct net_device *netdev,
-			       struct net_mdev_bus_info *bus_info)
-{
-	bus_info->bus_max = VFIO_PCI_NUM_REGIONS;
-        bus_info->extra = VFIO_NET_MDEV_NUM_REGIONS;
-
-	return 0;
-}
-
-static int e1000e_get_region_info(struct net_device *netdev,
+static int e1000e_get_region_info(struct mdev_device *mdev,
 				  struct vfio_region_info *info)
 {
+	struct net_device *netdev = mdev_get_netdev(mdev);
 	struct e1000_adapter *adapter = netdev_priv(netdev);
 
 	switch (info->index) {
@@ -107,10 +97,11 @@ static int e1000e_get_region_info(struct net_device *netdev,
 	return 0;
 }
 
-static int e1000e_get_cap_info(struct net_device *netdev, u32 region,
+static int e1000e_get_cap_info(struct mdev_device *mdev, u32 region,
 			       struct vfio_region_info_cap_type *cap_type,
-			       struct vfio_region_info *info, int *sparse)
+			       struct vfio_region_info *info, int *nr_areas)
 {
+	struct net_device *netdev = mdev_get_netdev(mdev);
 	struct e1000_adapter *adapter = netdev_priv(netdev);
 
 	if (region >= VFIO_NET_MDEV_NUM_REGIONS)
@@ -138,7 +129,7 @@ static int e1000e_get_cap_info(struct net_device *netdev, u32 region,
 	default:
 		return -EINVAL;
 	}
-	*sparse = 0;
+	*nr_areas = 0;
 
 	info->offset =
 	    VFIO_PCI_INDEX_TO_OFFSET(region + VFIO_PCI_NUM_REGIONS);
@@ -149,9 +140,10 @@ static int e1000e_get_cap_info(struct net_device *netdev, u32 region,
 	return 0;
 }
 
-static int e1000e_get_mmap_info(struct net_device *netdev, u32 index,
+static int e1000e_get_mmap_info(struct mdev_device *mdev, u32 index,
 				unsigned long *pfn, unsigned long *nr_pages)
 {
+	struct net_device *netdev = mdev_get_netdev(mdev);
 	struct e1000_adapter *adapter = netdev_priv(netdev);
 	phys_addr_t start = 0;
 	u64 len = 0;
@@ -184,25 +176,12 @@ static int e1000e_get_mmap_info(struct net_device *netdev, u32 index,
 	return 0;
 }
 
-static int e1000e_get_irq_info(struct net_device *netdev,
-			       struct vfio_irq_info *info)
-{
-	info->flags = VFIO_IRQ_INFO_EVENTFD | VFIO_IRQ_INFO_MASKABLE |
-	    VFIO_IRQ_INFO_AUTOMASKED;
-	info->count = 1;
-
-	return 0;
-}
-
 static struct netmdev_driver_ops e1000e_netmdev_driver_ops = {
 	.transition_start = e1000e_transition_start,
 	.transition_back = e1000e_transition_back,
-	.get_device_info = e1000e_get_device_info,
-	.get_bus_info = e1000e_get_bus_info,
 	.get_region_info = e1000e_get_region_info,
 	.get_cap_info = e1000e_get_cap_info,
 	.get_mmap_info = e1000e_get_mmap_info,
-	.get_irq_info = e1000e_get_irq_info,
 };
 
 void e1000e_register_netmdev(struct device *dev)
