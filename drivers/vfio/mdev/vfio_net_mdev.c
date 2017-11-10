@@ -189,7 +189,8 @@ static int netmdev_dev_open(struct mdev_device *mdev)
 	netif_tx_stop_all_queues(port);
 
 	port->priv_flags |= IFF_VFNETDEV;
-	netmdev->drv_ops.transition_start(mdev);
+	if (netmdev->drv_ops.transition_start(mdev))
+		return -EINVAL;
 
 	/* FIXME : uggly and dangerous, let's find a clean way to shadow the values*/
 	memcpy(&netmdev->uapi, &port->features, sizeof(struct netmdev_uapi));
@@ -412,6 +413,24 @@ out_err:
 	return NULL;
 }
 
+struct mdev_net_regions *region_from_index(struct mdev_device *mdev, int index)
+{
+	struct netmdev *netmdev;
+	int i;
+
+	netmdev = mdev_get_drvdata(mdev);
+	if (!netmdev->vdev || !netmdev->vdev->vdev_regions)
+		return NULL;
+
+	for (i = 0; i < netmdev->vdev->used_regions; i++) {
+		if (netmdev->vdev->vdev_regions[i].offset ==
+			VFIO_PCI_INDEX_TO_OFFSET(index))
+				return &netmdev->vdev->vdev_regions[i];
+	}
+
+	return NULL;
+}
+
 static long netmdev_dev_ioctl(struct mdev_device *mdev, unsigned int cmd,
 			      unsigned long arg)
 {
@@ -423,12 +442,12 @@ static long netmdev_dev_ioctl(struct mdev_device *mdev, unsigned int cmd,
 	struct vfio_irq_info irq_info;
 	struct vfio_info_cap caps = { .buf = NULL, .size = 0 };
 	struct vfio_region_info_cap_type cap_type;
-	struct vfio_region_info_cap_sparse_mmap *sparse = NULL;
-	int nr_areas = 0;
+	//struct vfio_region_info_cap_sparse_mmap *sparse = NULL;
 	struct vfio_iommu_type1_dma_map dma_map;
 	struct vfio_iommu_type1_dma_unmap dma_unmap;
-	int ret, region_index;
+	int ret = 0;
 	int max_regions = 0;
+	struct mdev_net_regions *net_regions;
 
 	if (!mdev)
 		return -EINVAL;
@@ -470,34 +489,33 @@ static long netmdev_dev_ioctl(struct mdev_device *mdev, unsigned int cmd,
 		if(reg_info.index > max_regions)
 			return -EINVAL;
 
-		if (reg_info.index < netmdev->vdev->bus_regions) {
-			ret = netmdev->drv_ops.get_region_info(mdev, &reg_info);
-		} else {
-			region_index = reg_info.index - netmdev->vdev->bus_regions;
-			ret = netmdev->drv_ops.get_cap_info(mdev, region_index,
-							    &cap_type, &reg_info,
-							    &nr_areas);
-			if (ret)
-				return -EINVAL;
+		net_regions = region_from_index(mdev, reg_info.index);
+		if (!net_regions)
+			return -EINVAL;
+		reg_info.size = net_regions->size;
+		reg_info.offset = net_regions->offset;
+		reg_info.flags = net_regions->flags;
+
+#if 0
+		if (reg_info.flags & VFIO_REGION_INFO_FLAG_CAPS) {
+			cap_type.type = net_regions->caps.type;
+			cap_type.subtype = net_regions->caps.subtype;
 
 			ret = vfio_info_add_capability(&caps,
-						VFIO_REGION_INFO_CAP_TYPE,
-						&cap_type);
-			if (ret)
-				return ret;
-
-			sparse = netmdev_fill_sparse(mdev, region_index, nr_areas);
-			if (sparse) {
-				ret = vfio_info_add_capability(&caps,
-					VFIO_REGION_INFO_CAP_SPARSE_MMAP, sparse);
-				kfree(sparse);
-			}
+					VFIO_REGION_INFO_CAP_TYPE,
+					&cap_type);
 			if (ret)
 				return ret;
 		}
-		if (ret < 0)
+		sparse = netmdev_fill_sparse(mdev, region_index, nr_areas);
+		if (sparse) {
+			ret = vfio_info_add_capability(&caps,
+				VFIO_REGION_INFO_CAP_SPARSE_MMAP, sparse);
+			kfree(sparse);
+		}
+		if (ret)
 			return ret;
-
+#endif
 		if (caps.size) {
 			if (reg_info.argsz < sizeof(reg_info) + caps.size) {
 				reg_info.argsz = sizeof(reg_info) + caps.size;
@@ -634,7 +652,7 @@ static const struct mdev_parent_ops netmdev_sysfs_ops = {
 static int netmdev_check_cbacks(struct netmdev_driver_ops *drv_ops)
 {
 	return (!drv_ops || !drv_ops->transition_start ||
-		!drv_ops->get_region_info || !drv_ops->transition_back ||
+		!drv_ops->transition_back ||
 		!drv_ops->get_mmap_info);
 }
 
@@ -685,6 +703,23 @@ int netmdev_register_device(struct device *dev, struct netmdev_driver_ops *ops)
 	return netmdev_register_driver(dev->driver, ops);
 }
 EXPORT_SYMBOL(netmdev_register_device);
+
+void mdev_net_add_region(struct mdev_net_regions **vdev_regions,
+			 __u64 offset, __u64 size, __u32 flags)
+{
+	(*vdev_regions)->size = size;
+	(*vdev_regions)->offset = offset;
+	(*vdev_regions)->flags = flags;
+}
+EXPORT_SYMBOL(mdev_net_add_region);
+
+void mdev_net_add_cap(struct mdev_net_regions **vdev_regions,
+		      __u32 type, __u32 subtype)
+{
+	(*vdev_regions)->caps.type = type;
+	(*vdev_regions)->caps.subtype = subtype;
+}
+EXPORT_SYMBOL(mdev_net_add_cap);
 
 static int __init netmdev_init(void)
 {

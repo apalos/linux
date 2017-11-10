@@ -16,19 +16,84 @@ void r8169_mdev_close(struct net_device *dev);
 void r8169_mdev_prepare(struct net_device *dev);
 int r8169_mdev_destroy(struct net_device *dev);
 
+
+static int r8169_init_vdev(struct mdev_device *mdev)
+{
+	struct netmdev *netmdev = mdev_get_drvdata(mdev);
+	struct net_device *netdev = mdev_get_netdev(mdev);
+	struct rtl8169_private *tp;
+	struct mdev_net_regions *info;
+	struct pci_dev *pdev;
+
+	tp = netdev_priv(netdev);
+	if (!tp)
+		return  -EFAULT;
+
+	pdev = tp->pci_dev;
+
+	netmdev->vdev = kzalloc(sizeof(netmdev->vdev), GFP_KERNEL);
+	if (!netmdev->vdev)
+		return -ENOMEM;
+
+	netmdev->vdev->bus_regions = VFIO_PCI_NUM_REGIONS;
+	netmdev->vdev->extra_regions = VFIO_NET_MDEV_NUM_REGIONS;
+	netmdev->vdev->used_regions = 3; /* BAR2, RX/TX queues */
+
+	netmdev->vdev->bus_flags = VFIO_DEVICE_FLAGS_PCI;
+	netmdev->vdev->num_irqs = 1;
+
+	netmdev->vdev->vdev_regions =
+		kzalloc(netmdev->vdev->used_regions * sizeof(netmdev->vdev->vdev_regions),
+			GFP_KERNEL);
+	/* BAR MMIO */
+	info = &netmdev->vdev->vdev_regions[0];
+	mdev_net_add_region(&info, VFIO_PCI_INDEX_TO_OFFSET(VFIO_PCI_BAR2_REGION_INDEX),
+			pci_resource_len(pdev, VFIO_PCI_BAR2_REGION_INDEX),
+			VFIO_REGION_INFO_FLAG_READ | VFIO_REGION_INFO_FLAG_WRITE |
+			VFIO_REGION_INFO_FLAG_MMAP);
+	/* Rx */
+	info = &netmdev->vdev->vdev_regions[1];
+	mdev_net_add_region(&info, VFIO_PCI_INDEX_TO_OFFSET(VFIO_NET_MDEV_RX_REGION_INDEX +
+			    netmdev->vdev->bus_regions), R8169_RX_RING_BYTES,
+			    VFIO_REGION_INFO_FLAG_READ | VFIO_REGION_INFO_FLAG_WRITE |
+			    VFIO_REGION_INFO_FLAG_MMAP | VFIO_REGION_INFO_FLAG_CAPS);
+	mdev_net_add_cap(&info, VFIO_NET_DESCRIPTORS, VFIO_NET_MDEV_RX);
+	/* Tx */
+	info = &netmdev->vdev->vdev_regions[2];
+	mdev_net_add_region(&info, VFIO_PCI_INDEX_TO_OFFSET(VFIO_NET_MDEV_TX_REGION_INDEX +
+			    netmdev->vdev->bus_regions), R8169_TX_RING_BYTES,
+			    VFIO_REGION_INFO_FLAG_READ | VFIO_REGION_INFO_FLAG_WRITE |
+			    VFIO_REGION_INFO_FLAG_MMAP | VFIO_REGION_INFO_FLAG_CAPS);
+	mdev_net_add_cap(&info, VFIO_NET_DESCRIPTORS, VFIO_NET_MDEV_TX);
+
+	return 0;
+}
+
+void r8169_destroy_vdev(struct mdev_device *mdev)
+{
+	struct netmdev *netmdev = mdev_get_drvdata(mdev);
+
+	kfree(netmdev->vdev->vdev_regions);
+	kfree(netmdev->vdev);
+}
+
 static int r8169_transition_start(struct mdev_device *mdev)
 {
 	struct net_device *netdev = mdev_get_netdev(mdev);
 	void __iomem *ioaddr;
 	struct rtl8169_private *tp;
+	int ret;
 
 	tp = netdev_priv(netdev);
 	if (!tp)
 		return -EINVAL;
-
 	ioaddr = tp->mmio_addr;
 
 	r8169_mdev_prepare(netdev);
+
+	ret = r8169_init_vdev(mdev);
+	if (ret)
+		return -EINVAL;
 
 	return 0;
 }
@@ -38,6 +103,7 @@ static int r8169_transition_back(struct mdev_device *mdev)
 	struct net_device *netdev = mdev_get_netdev(mdev);
 	void __iomem *ioaddr;
 	struct rtl8169_private *tp;
+	int ret;
 
 	tp = netdev_priv(netdev);
 	if (!tp)
@@ -45,7 +111,10 @@ static int r8169_transition_back(struct mdev_device *mdev)
 
 	ioaddr = tp->mmio_addr;
 
-	return r8169_mdev_destroy(netdev);
+	ret = r8169_mdev_destroy(netdev);
+	r8169_destroy_vdev(mdev);
+
+	return ret;
 }
 
 static int r8169_get_mmap(struct mdev_device *mdev, u32 index,
@@ -124,62 +193,10 @@ static int r8169_get_extra_regions(struct mdev_device *mdev, u32 region,
 	return 0;
 }
 
-static int r8169_get_region(struct mdev_device *mdev, struct vfio_region_info *info)
-
-{
-	struct net_device *netdev = mdev_get_netdev(mdev);
-	struct rtl8169_private *tp;
-	struct pci_dev *pdev;
-
-	tp = netdev_priv(netdev);
-	if (!tp)
-		return  -EFAULT;
-
-	pdev = tp->pci_dev;
-
-	switch (info->index) {
-	case VFIO_PCI_BAR0_REGION_INDEX:
-	case VFIO_PCI_BAR1_REGION_INDEX:
-	case VFIO_PCI_BAR3_REGION_INDEX ... VFIO_PCI_NUM_REGIONS:
-		info->offset = VFIO_PCI_INDEX_TO_OFFSET(info->index);
-		info->size = 0;
-		info->flags = 0;
-		break;
-	case VFIO_PCI_BAR2_REGION_INDEX:
-		info->offset = VFIO_PCI_INDEX_TO_OFFSET(info->index);
-		info->size = pci_resource_len(pdev, info->index);
-		if (!info->size) {
-			info->flags = 0;
-			break;
-		}
-		info->flags = VFIO_REGION_INFO_FLAG_READ |
-			VFIO_REGION_INFO_FLAG_WRITE |
-			VFIO_REGION_INFO_FLAG_MMAP;
-		break;
-	default:
-		return -EINVAL;
-	}
-	return 0;
-}
-
-static int r8169_init_vdev(struct mdev_device *mdev)
-{
-	struct netmdev *netmdev = mdev_get_drvdata(mdev);
-
-	netmdev->vdev->bus_regions = VFIO_PCI_NUM_REGIONS;
-	netmdev->vdev->extra_regions = VFIO_NET_MDEV_NUM_REGIONS;
-
-	netmdev->vdev->bus_flags = VFIO_DEVICE_FLAGS_PCI;
-	netmdev->vdev->num_irqs = 1;
-
-	return 0;
-}
-
 struct netmdev_driver_ops rtl8169_netmdev_driver_ops =
 {
 	.transition_start = r8169_transition_start,
 	.transition_back = r8169_transition_back,
-	.get_region_info = r8169_get_region,
 	.get_cap_info = r8169_get_extra_regions,
 	.get_mmap_info = r8169_get_mmap,
 };

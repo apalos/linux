@@ -65,29 +65,18 @@ static int cxgb4_transition_back(struct mdev_device *mdev)
 	return 0;
 }
 
-static int cxgb4_get_bus_info(struct mdev_device *mdev,
-			      struct net_mdev_bus_info *bus_info)
-{
-	struct net_device *netdev = mdev_get_netdev(mdev);
+static int cxgb4_init_vdev(struct mdev_device *mdev)
 
-	bus_info->bus_max = VFIO_PCI_NUM_REGIONS;
+{
+	struct netmdev *netmdev = mdev_get_drvdata(mdev);
+
+
+	netmdev->vdev->bus_regions = VFIO_PCI_NUM_REGIONS;
 	/* FIXME find #define for that */
-        bus_info->extra = 64;
+	netmdev->vdev->extra_regions = 64;
 
-	return 0;
-}
-
-static int cxgb4_get_device_info(struct mdev_device *mdev,
-				 struct vfio_device_info *info)
-{
-	struct net_device *netdev = mdev_get_netdev(mdev);
-	struct net_mdev_bus_info bus_info;
-
-	cxgb4_get_bus_info(mdev, &bus_info);
-
-	info->flags = VFIO_DEVICE_FLAGS_PCI;
-	info->num_regions = bus_info.bus_max + bus_info.extra;
-	info->num_irqs = 1;
+	netmdev->vdev->bus_flags = VFIO_DEVICE_FLAGS_PCI;
+	netmdev->vdev->num_irqs = 1;
 
 	return 0;
 }
@@ -117,6 +106,7 @@ static int cxgb4_get_sparse_info(struct mdev_device *mdev, u64 *offset, u64 *siz
 static int cxgb4_get_region_info(struct mdev_device *mdev,
 				 struct vfio_region_info *info)
 {
+	struct net_device *netdev = mdev_get_netdev(mdev);
 	struct port_info *pi = netdev_priv(netdev);
 
 	switch (info->index) {
@@ -138,13 +128,12 @@ static int cxgb4_get_cap_info(struct mdev_device *mdev, u32 region,
 			      struct vfio_region_info_cap_type *cap_type,
 			      struct vfio_region_info *info, int *nr_areas)
 {
-	struct net_mdev_bus_info bus_info;
 	struct net_device *netdev = mdev_get_netdev(mdev);
 	struct port_info *pi = netdev_priv(netdev);
+	struct netmdev *netmdev = mdev_get_drvdata(mdev);
 	int num_desc;
 
-	cxgb4_get_bus_info(mdev, &bus_info);
-	num_desc = bus_info.bus_max + bus_info.extra;
+	num_desc = netmdev->vdev->bus_regions + netmdev->vdev->extra_regions;
 	if (region >= num_desc)
 		return -EINVAL;
 
@@ -212,27 +201,13 @@ static int cxgb4_get_mmap_info(struct mdev_device *mdev, u32 index,
 	return 0;
 }
 
-static int cxgb4_get_irq_info(struct net_device *netdev,
-			      struct vfio_irq_info *info)
-{
-	info->flags = VFIO_IRQ_INFO_EVENTFD | VFIO_IRQ_INFO_MASKABLE |
-		VFIO_IRQ_INFO_AUTOMASKED;
-	info->count = 1;
-
-	return 0;
-}
-
-
 static struct netmdev_driver_ops cxgb4_netmdev_driver_ops = {
 	.transition_start = cxgb4_transition_start,
 	.transition_back = cxgb4_transition_back,
-	.get_device_info = cxgb4_get_device_info,
-	.get_bus_info = cxgb4_get_bus_info,
 	.get_region_info = cxgb4_get_region_info,
 	.get_cap_info = cxgb4_get_cap_info,
 	.get_sparse_info = cxgb4_get_sparse_info,
 	.get_mmap_info = cxgb4_get_mmap_info,
-	.get_irq_info = cxgb4_get_irq_info,
 };
 
 void cxgb4_register_netmdev(struct device *dev)

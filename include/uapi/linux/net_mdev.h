@@ -17,14 +17,14 @@
 #define VFIO_NETMDEV_TRANSITION_COMPLETE	500
 
 enum net_mdev_types {
-	VFIO_NET_MDEV_SHADOW = 0,
-	VFIO_NET_DESCRIPTORS = 1,
+	VFIO_NET_MDEV_SHADOW,
+	VFIO_NET_DESCRIPTORS,
 };
 
 enum net_mdev_subtypes {
-	VFIO_NET_MDEV_STATS = 0,
-	VFIO_NET_MDEV_RX = 1,
-	VFIO_NET_MDEV_TX = 2,
+	VFIO_NET_MDEV_STATS,
+	VFIO_NET_MDEV_RX,
+	VFIO_NET_MDEV_TX,
 };
 
 enum vfio_net_mdev_regions {

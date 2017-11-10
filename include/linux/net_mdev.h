@@ -12,13 +12,34 @@
 struct mdev_device;
 struct device;
 
+struct mdev_net_sparse {
+	__u64 offset;
+	__u64 size;
+};
+
+struct mdev_net_caps {
+	__u32 type;     /* global per bus driver */
+	__u32 subtype;  /* type specific */
+	__u32 nr_areas; /* number of sparse areas */
+	struct mdev_net_sparse *sparse;
+};
+
+struct mdev_net_regions {
+	__u32	flags;
+	__u64	size;		/* Region size (bytes) */
+	__u64	offset;		/* Region offset */
+	struct mdev_net_caps caps;
+};
+
 struct mdev_net_vdev {
 	__u16 bus_regions;	/* Bus specific */
 	__u16 extra_regions;	/* extra regions */
+	__u16 used_regions;	/* Used regions/caps */
 	__u32 num_rx;		/* Rx queues */
 	__u32 num_tx;		/* Tx queues */
 	__u32 bus_flags;	/* vfio_device_info flags */
 	__u32 num_irqs;		/* Max IRQ index + 1 */
+	struct mdev_net_regions *vdev_regions;
 };
 
 /**
@@ -74,5 +95,9 @@ struct netmdev {
 int netmdev_register_device(struct device* dev, struct netmdev_driver_ops *ops);
 int netmdev_unregister_device(struct device* dev);
 struct net_device *mdev_get_netdev(struct mdev_device *mdev);
+void mdev_net_add_cap(struct mdev_net_regions **vdev_regions,
+		      __u32 type, __u32 subtype);
+void mdev_net_add_region(struct mdev_net_regions **vdev_regions,
+			 __u64 offset, __u64 size, __u32 flags);
 
 #endif /* MDEV_H */
