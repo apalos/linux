@@ -461,6 +461,10 @@ static long netmdev_dev_ioctl(struct mdev_device *mdev, unsigned int cmd,
 	switch (cmd) {
 	case VFIO_DEVICE_GET_INFO:
 		minsz = offsetofend(struct vfio_device_info, num_irqs);
+		if (!netmdev->vdev) {
+			printk("mdev vdev not initialized properly\n");
+			return -EFAULT;
+		}
 
 		if (copy_from_user(&device_info, (void __user *)arg, minsz))
 			return -EFAULT;
@@ -496,7 +500,6 @@ static long netmdev_dev_ioctl(struct mdev_device *mdev, unsigned int cmd,
 		reg_info.offset = net_regions->offset;
 		reg_info.flags = net_regions->flags;
 
-#if 0
 		if (reg_info.flags & VFIO_REGION_INFO_FLAG_CAPS) {
 			cap_type.type = net_regions->caps.type;
 			cap_type.subtype = net_regions->caps.subtype;
@@ -507,6 +510,7 @@ static long netmdev_dev_ioctl(struct mdev_device *mdev, unsigned int cmd,
 			if (ret)
 				return ret;
 		}
+#if 0
 		sparse = netmdev_fill_sparse(mdev, region_index, nr_areas);
 		if (sparse) {
 			ret = vfio_info_add_capability(&caps,
