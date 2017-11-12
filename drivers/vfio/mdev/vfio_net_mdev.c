@@ -592,10 +592,10 @@ static int netmdev_dev_mmap(struct mdev_device *mdev, struct vm_area_struct *vma
 {
 	struct net_device *netdev;
 	struct netmdev *netmdev;
-	int ret = 0;
 	u64 req_len, pgoff, req_start;
 	unsigned int index;
 	unsigned long pfn, nr_pages;
+	struct mdev_net_regions *net_regions;
 	u32 max;
 
 	/* userland wants to access ring descrptors that was pre-allocated
@@ -614,10 +614,11 @@ static int netmdev_dev_mmap(struct mdev_device *mdev, struct vm_area_struct *vma
 
 	index = vma->vm_pgoff >> (VFIO_PCI_OFFSET_SHIFT - PAGE_SHIFT);
 	if (index <= max) {
-		ret = netmdev->drv_ops.get_mmap_info(mdev, index, &pfn,
-						     &nr_pages);
-		if (ret)
+		net_regions = region_from_index(mdev, index);
+		if (!net_regions)
 			return -EINVAL;
+		pfn = net_regions->pfn;
+		nr_pages = net_regions->nr_pages;
 	} else {
 		return -EINVAL;
 	}
@@ -656,8 +657,8 @@ static const struct mdev_parent_ops netmdev_sysfs_ops = {
 static int netmdev_check_cbacks(struct netmdev_driver_ops *drv_ops)
 {
 	return (!drv_ops || !drv_ops->transition_start ||
-		!drv_ops->transition_back ||
-		!drv_ops->get_mmap_info);
+		!drv_ops->transition_back);
+
 }
 
 /* netmdev_driver stuff */
@@ -724,6 +725,14 @@ void mdev_net_add_cap(struct mdev_net_regions **vdev_regions,
 	(*vdev_regions)->caps.subtype = subtype;
 }
 EXPORT_SYMBOL(mdev_net_add_cap);
+
+void mdev_net_add_mmap(struct mdev_net_regions **vdev_regions,
+		       phys_addr_t start, u64 len)
+{
+	(*vdev_regions)->pfn = start >> PAGE_SHIFT;
+	(*vdev_regions)->nr_pages = PAGE_ALIGN(len) >> PAGE_SHIFT;
+}
+EXPORT_SYMBOL(mdev_net_add_mmap);
 
 static int __init netmdev_init(void)
 {

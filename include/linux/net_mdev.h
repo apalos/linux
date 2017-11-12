@@ -28,17 +28,19 @@ struct mdev_net_regions {
 	__u32	flags;
 	__u64	size;		/* Region size (bytes) */
 	__u64	offset;		/* Region offset */
+	unsigned long pfn;
+	unsigned long nr_pages;
 	struct mdev_net_caps caps;
 };
 
 struct mdev_net_vdev {
-	__u16 bus_regions;	/* Bus specific */
-	__u16 extra_regions;	/* extra regions */
-	__u16 used_regions;	/* Used regions/caps */
-	__u32 num_rx;		/* Rx queues */
-	__u32 num_tx;		/* Tx queues */
+	__u8 bus_regions;	/* Bus specific */
+	__u8 extra_regions;	/* extra regions */
+	__u8 used_regions;	/* Used regions/caps */
+	__u16 num_rx;		/* Rx queues */
+	__u16 num_tx;		/* Tx queues */
 	__u32 bus_flags;	/* vfio_device_info flags */
-	__u32 num_irqs;		/* Max IRQ index + 1 */
+	__u16 num_irqs;		/* Max IRQ index + 1 */
 	struct mdev_net_regions *vdev_regions;
 };
 
@@ -99,5 +101,7 @@ void mdev_net_add_cap(struct mdev_net_regions **vdev_regions,
 		      __u32 type, __u32 subtype);
 void mdev_net_add_region(struct mdev_net_regions **vdev_regions,
 			 __u64 offset, __u64 size, __u32 flags);
+void mdev_net_add_mmap(struct mdev_net_regions **vdev_regions,
+		       phys_addr_t start, u64 len);
 
 #endif /* MDEV_H */
