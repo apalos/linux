@@ -380,6 +380,7 @@ static int netmdev_vfio_unmmap_dma(struct mdev_device *mdev,
 	return -EINVAL;
 }
 
+#if 0
 static struct
 vfio_region_info_cap_sparse_mmap *netmdev_fill_sparse(struct mdev_device *mdev,
 						      int region_index, int nr_areas)
@@ -412,6 +413,7 @@ out_err:
 		kfree(sparse);
 	return NULL;
 }
+#endif
 
 struct mdev_net_regions *region_from_index(struct mdev_device *mdev, int index)
 {

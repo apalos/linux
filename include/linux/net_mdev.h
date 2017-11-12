@@ -58,15 +58,6 @@ struct mdev_net_vdev {
 struct netmdev_driver_ops {
 	int (*transition_start)(struct mdev_device *mdev);
 	int (*transition_back)(struct mdev_device *mdev);
-	int (*get_mmap_info)(struct mdev_device *mdev, u32 index,
-			     unsigned long *pfn, unsigned long *nr_pages);
-	int (*get_region_info)(struct mdev_device *mdev,
-			       struct vfio_region_info *info);
-	int (*get_cap_info)(struct mdev_device *mdev, u32 region,
-			    struct vfio_region_info_cap_type *cap_type,
-			    struct vfio_region_info *info, int *sparse_areas);
-	int (*get_sparse_info)(struct mdev_device *mdev, u64 *offset, u64 *size,
-			       int region_index, int area);
 	int (*reset_dev)(struct mdev_device *mdev);
 };
 
