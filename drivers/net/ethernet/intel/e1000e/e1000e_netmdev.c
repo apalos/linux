@@ -59,6 +59,10 @@ static int e1000e_init_vdev(struct mdev_device *mdev)
 	netmdev->vdev->vdev_regions =
 		kzalloc(E1000E_MDEV_USED_REGIONS *
 			sizeof(*netmdev->vdev->vdev_regions), GFP_KERNEL);
+	if (!netmdev->vdev->vdev_regions) {
+		kfree(netmdev->vdev);
+		return -ENOMEM;
+	}
 
 	/* BAR MMIO */
 	info = &netmdev->vdev->vdev_regions[netmdev->vdev->used_regions++];
