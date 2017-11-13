@@ -44,13 +44,131 @@
 
 struct net_device *mdev_get_netdev(struct mdev_device *mdev);
 
+static int cxgb4_init_vdev(struct mdev_device *mdev)
+{
+	struct netmdev *netmdev = mdev_get_drvdata(mdev);
+	struct net_device *netdev = mdev_get_netdev(mdev);
+	struct port_info *pi = netdev_priv(netdev);
+	struct mdev_net_regions *info;
+	struct pci_dev *pdev;
+	int mmio_flags = VFIO_REGION_INFO_FLAG_READ |
+		VFIO_REGION_INFO_FLAG_WRITE |
+		VFIO_REGION_INFO_FLAG_MMAP;
+	int cap_flags = VFIO_REGION_INFO_FLAG_READ |
+		VFIO_REGION_INFO_FLAG_WRITE |
+		VFIO_REGION_INFO_FLAG_MMAP |
+		VFIO_REGION_INFO_FLAG_CAPS;
+	phys_addr_t start;
+	u64 len;
+	int i;
+
+	pdev = pi->adapter->pdev;
+
+	netmdev->vdev = kzalloc(sizeof(netmdev->vdev), GFP_KERNEL);
+	if (!netmdev->vdev)
+		return -ENOMEM;
+
+	netmdev->vdev->bus_regions = VFIO_PCI_NUM_REGIONS;
+	netmdev->vdev->extra_regions = VFIO_NET_MDEV_NUM_REGIONS;
+	netmdev->vdev->used_regions = 0;
+
+	netmdev->vdev->bus_flags = VFIO_DEVICE_FLAGS_PCI;
+	netmdev->vdev->num_irqs = 1;
+
+	netmdev->vdev->vdev_regions =
+		kzalloc(netmdev->vdev->used_regions *
+			sizeof(*netmdev->vdev->vdev_regions), GFP_KERNEL);
+	if (!netmdev->vdev->vdev_regions) {
+		kfree(netmdev->vdev);
+		return -ENOMEM;
+	}
+	/* BAR MMIO */
+	info = &netmdev->vdev->vdev_regions[netmdev->vdev->used_regions++];
+	start = pci_resource_start(pdev, VFIO_PCI_BAR0_REGION_INDEX);
+	len = pci_resource_len(pdev, VFIO_PCI_BAR0_REGION_INDEX);
+	mdev_net_add_region(&info, VFIO_PCI_INDEX_TO_OFFSET(VFIO_PCI_BAR0_REGION_INDEX),
+			    len, mmio_flags);
+	mdev_net_add_mmap(&info, start, len);
+
+	for (i = 0; i < pi->nqsets; i++) {
+		/* Rx */
+		struct sge_rspq *iq = &pi->adapter->sge.ethrxq[i].rspq;
+
+		start = virt_to_phys(iq->desc);
+		len = iq->size * iq->iqe_len;
+
+		info = &netmdev->vdev->vdev_regions[netmdev->vdev->used_regions++];
+		mdev_net_add_region(&info, VFIO_PCI_INDEX_TO_OFFSET(i +
+				    netmdev->vdev->bus_regions), len,
+				    cap_flags);
+		mdev_net_add_cap(&info, VFIO_NET_DESCRIPTORS, VFIO_NET_MDEV_RX);
+		mdev_net_add_mmap(&info, start, len);
+	}
+	/* Rx free list */
+	for (i = 0; i < pi->nqsets; i++) {
+		struct sge_fl *fl = &pi->adapter->sge.ethrxq[i].fl;
+		struct sge *s = &pi->adapter->sge;
+
+		start = virt_to_phys(fl->sdesc);
+		len = (fl->size * sizeof(__be64)) + s->stat_len;
+		info = &netmdev->vdev->vdev_regions[netmdev->vdev->used_regions++];
+		mdev_net_add_region(&info, VFIO_PCI_INDEX_TO_OFFSET(i +
+				    netmdev->vdev->bus_regions), len,
+				    cap_flags);
+		mdev_net_add_cap(&info, VFIO_NET_DESCRIPTORS, VFIO_NET_MDEV_RX);
+		mdev_net_add_mmap(&info, start, len);
+	}
+	/* Tx */
+	for (i = 0; i < pi->nqsets; i++) {
+		/* Tx */
+		struct sge_txq *q = &pi->adapter->sge.ethtxq[i].q;
+		struct sge *s = &pi->adapter->sge;
+
+		info = &netmdev->vdev->vdev_regions[netmdev->vdev->used_regions++];
+		start = virt_to_phys(q->desc->flit);
+		len = q->size * sizeof(*q->desc) + s->stat_len;
+		mdev_net_add_region(&info, VFIO_PCI_INDEX_TO_OFFSET(i +
+				    netmdev->vdev->bus_regions), len,
+				    cap_flags);
+		mdev_net_add_cap(&info, VFIO_NET_DESCRIPTORS, VFIO_NET_MDEV_TX);
+		mdev_net_add_mmap(&info, start, len);
+	}
+
+	return 0;
+}
+
+void cxgb4_destroy_vdev(struct mdev_device *mdev)
+{
+	struct netmdev *netmdev = mdev_get_drvdata(mdev);
+
+	if (netmdev->vdev) {
+		if (netmdev->vdev->vdev_regions)
+			kfree(netmdev->vdev->vdev_regions);
+		kfree(netmdev->vdev);
+	}
+}
+
+
 static int cxgb4_transition_start(struct mdev_device *mdev)
 {
 	struct net_device *netdev = mdev_get_netdev(mdev);
 	struct port_info *pi = netdev_priv(netdev);
+	struct adapter *adapter = pi->adapter;
+	int ret;
 
 	dev_hold(netdev);
-	netif_carrier_off(netdev);
+
+	ret = t4_update_port_info(pi);
+	if (ret < 0)
+		return ret;
+	/* XXX Check if we have to free queues to save resources */
+	t4_intr_disable(adapter);
+	t4_sge_stop(adapter);
+
+	ret = cxgb4_init_vdev(mdev);
+	if (ret)
+		return -EINVAL;
+
 
 	return 0;
 }
@@ -59,144 +177,14 @@ static int cxgb4_transition_back(struct mdev_device *mdev)
 {
 	struct net_device *netdev = mdev_get_netdev(mdev);
 	struct port_info *pi = netdev_priv(netdev);
+	struct adapter *adapter = pi->adapter;
 
 	dev_put(netdev);
+	cxgb4_destroy_vdev(mdev);
 
-	return 0;
-}
-
-static int cxgb4_init_vdev(struct mdev_device *mdev)
-
-{
-	struct netmdev *netmdev = mdev_get_drvdata(mdev);
-
-
-	netmdev->vdev->bus_regions = VFIO_PCI_NUM_REGIONS;
-	/* FIXME find #define for that */
-	netmdev->vdev->extra_regions = 64;
-
-	netmdev->vdev->bus_flags = VFIO_DEVICE_FLAGS_PCI;
-	netmdev->vdev->num_irqs = 1;
-
-	return 0;
-}
-
-static int cxgb4_get_sparse_info(struct mdev_device *mdev, u64 *offset, u64 *size,
-				 int region, int area)
-{
-	struct net_device *netdev = mdev_get_netdev(mdev);
-	struct port_info *pi = netdev_priv(netdev);
-
-	if (region >= VFIO_NET_MDEV_NUM_REGIONS)
-		return -EINVAL;
-	switch (region) {
-	case VFIO_NET_MDEV_RX_REGION_INDEX:
-		break;
-
-	case VFIO_NET_MDEV_TX_REGION_INDEX:
-		break;
-
-	default:
-		return -EINVAL;
-	}
-
-	return 0;
-}
-
-static int cxgb4_get_region_info(struct mdev_device *mdev,
-				 struct vfio_region_info *info)
-{
-	struct net_device *netdev = mdev_get_netdev(mdev);
-	struct port_info *pi = netdev_priv(netdev);
-
-	switch (info->index) {
-	case VFIO_PCI_BAR2_REGION_INDEX:
-		/* PCI resource 2 */
-		info->offset = VFIO_PCI_INDEX_TO_OFFSET(info->index);
-		info->size = pci_resource_len(pi->adapter->pdev, info->index);
-		info->flags = VFIO_REGION_INFO_FLAG_MMAP;
-		break;
-
-	default:
-		return -EINVAL;
-	}
-
-	return 0;
-}
-
-static int cxgb4_get_cap_info(struct mdev_device *mdev, u32 region,
-			      struct vfio_region_info_cap_type *cap_type,
-			      struct vfio_region_info *info, int *nr_areas)
-{
-	struct net_device *netdev = mdev_get_netdev(mdev);
-	struct port_info *pi = netdev_priv(netdev);
-	struct netmdev *netmdev = mdev_get_drvdata(mdev);
-	int num_desc;
-
-	num_desc = netmdev->vdev->bus_regions + netmdev->vdev->extra_regions;
-	if (region >= num_desc)
-		return -EINVAL;
-
-	if (region == VFIO_NET_MDEV_SHADOW_REGION_INDEX) {
-		cap_type->type = VFIO_NET_MDEV_SHADOW;
-		cap_type->subtype = VFIO_NET_MDEV_STATS;
-		info->size = 0;
-	} else if (region > VFIO_NET_MDEV_SHADOW_REGION_INDEX && region < num_desc) {
-		cap_type->type = VFIO_NET_DESCRIPTORS;
-		if (region % VFIO_NET_MDEV_TX_REGION_INDEX)
-			cap_type->subtype = VFIO_NET_MDEV_TX;
-		else
-			cap_type->subtype = VFIO_NET_MDEV_RX;
-		info->size = 128;
-	} else {
-		return -EINVAL;
-	}
-	*nr_areas = 15;
-
-	info->offset = VFIO_PCI_INDEX_TO_OFFSET(region + VFIO_PCI_NUM_REGIONS);
-	info->flags = VFIO_REGION_INFO_FLAG_READ |
-		VFIO_REGION_INFO_FLAG_WRITE |
-		VFIO_REGION_INFO_FLAG_MMAP |
-		VFIO_REGION_INFO_FLAG_CAPS;
-
-	return 0;
-}
-
-static int cxgb4_get_mmap_info(struct mdev_device *mdev, u32 index,
-			       unsigned long *pfn, unsigned long *nr_pages)
-{
-	struct net_device *netdev = mdev_get_netdev(mdev);
-	struct port_info *pi = netdev_priv(netdev);
-	struct sge *s = &pi->adapter->sge;
-	struct sge_eth_rxq *rxq = &s->ethrxq[pi->first_qset];
-	struct sge_eth_txq *txq = &s->ethtxq[pi->first_qset];
-	phys_addr_t start = 0;
-	u64 len = 0;
-
-	switch (index) {
-	case VFIO_PCI_BAR0_REGION_INDEX:
-		//start = pci_resource_start(pi->adapter->pdev, index);
-		//len = pci_resource_len(pi->adapter->pdev, index);
-		break;
-
-	case VFIO_PCI_NUM_REGIONS + VFIO_NET_MDEV_RX_REGION_INDEX:
-		/* RX descriptor ring */
-		//start = virt_to_phys(adapter->rx_ring[0].desc);
-		//len = adapter->rx_ring[0].size;
-		break;
-
-	case VFIO_PCI_NUM_REGIONS + VFIO_NET_MDEV_TX_REGION_INDEX:
-		/* TX descriptor ring */
-		//start = virt_to_phys(adapter->tx_ring[0].desc);
-		//len = adapter->tx_ring[0].size;
-		break;
-
-	default:
-		return -EINVAL;
-	}
-
-	*pfn = start >> PAGE_SHIFT;
-	*nr_pages = PAGE_ALIGN(len) >> PAGE_SHIFT;
+	/* XXX Check if we have to free queues to save resources */
+	t4_sge_start(adapter);
+	t4_intr_enable(adapter);
 
 	return 0;
 }
@@ -204,10 +192,6 @@ static int cxgb4_get_mmap_info(struct mdev_device *mdev, u32 index,
 static struct netmdev_driver_ops cxgb4_netmdev_driver_ops = {
 	.transition_start = cxgb4_transition_start,
 	.transition_back = cxgb4_transition_back,
-	.get_region_info = cxgb4_get_region_info,
-	.get_cap_info = cxgb4_get_cap_info,
-	.get_sparse_info = cxgb4_get_sparse_info,
-	.get_mmap_info = cxgb4_get_mmap_info,
 };
 
 void cxgb4_register_netmdev(struct device *dev)
