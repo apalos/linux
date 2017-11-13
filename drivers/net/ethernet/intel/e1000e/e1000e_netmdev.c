@@ -25,6 +25,8 @@
 #include "e1000.h"
 #include "e1000e_netmdev.h"
 
+#define E1000E_MDEV_USED_REGIONS 3
+
 static int e1000e_init_vdev(struct mdev_device *mdev)
 {
 	struct netmdev *netmdev = mdev_get_drvdata(mdev);
@@ -50,43 +52,43 @@ static int e1000e_init_vdev(struct mdev_device *mdev)
 
 	netmdev->vdev->bus_regions = VFIO_PCI_NUM_REGIONS;
 	netmdev->vdev->extra_regions = VFIO_NET_MDEV_NUM_REGIONS;
-	netmdev->vdev->used_regions = E1000E_MDEV_USED_REGIONS;
 
 	netmdev->vdev->bus_flags = VFIO_DEVICE_FLAGS_PCI;
 	netmdev->vdev->num_irqs = 1;
 
 	netmdev->vdev->vdev_regions =
-		kzalloc(netmdev->vdev->used_regions *
+		kzalloc(E1000E_MDEV_USED_REGIONS *
 			sizeof(*netmdev->vdev->vdev_regions), GFP_KERNEL);
+
 	/* BAR MMIO */
-	info = &netmdev->vdev->vdev_regions[0];
-	len = pci_resource_len(pdev, VFIO_PCI_BAR0_REGION_INDEX);
+	info = &netmdev->vdev->vdev_regions[netmdev->vdev->used_regions++];
 	start = pci_resource_start(pdev, VFIO_PCI_BAR0_REGION_INDEX);
+	len = pci_resource_len(pdev, VFIO_PCI_BAR0_REGION_INDEX);
 	mdev_net_add_region(&info, VFIO_PCI_INDEX_TO_OFFSET(VFIO_PCI_BAR0_REGION_INDEX),
 			    len, mmio_flags);
+	mdev_net_add_mmap(&info, start, len);
 
-	mdev_net_add_mmap(&info, start, len);
 	/* Rx */
-	info = &netmdev->vdev->vdev_regions[1];
+	info = &netmdev->vdev->vdev_regions[netmdev->vdev->used_regions++];
+	start = virt_to_phys(adapter->rx_ring[0].desc);
+	len = adapter->rx_ring[0].size;
 	mdev_net_add_region(&info, VFIO_PCI_INDEX_TO_OFFSET(VFIO_NET_MDEV_RX_REGION_INDEX +
-			    netmdev->vdev->bus_regions), adapter->rx_ring[0].size,
-			    cap_flags);
+			    netmdev->vdev->bus_regions), len, cap_flags);
 	mdev_net_add_cap(&info, VFIO_NET_DESCRIPTORS, VFIO_NET_MDEV_RX);
-	start = virt_to_phys(adapter->tx_ring[0].desc);
-	len = adapter->tx_ring[0].size;
 	mdev_net_add_mmap(&info, start, len);
+
 	/* Tx */
-	info = &netmdev->vdev->vdev_regions[2];
-	mdev_net_add_region(&info, VFIO_PCI_INDEX_TO_OFFSET(VFIO_NET_MDEV_TX_REGION_INDEX +
-			    netmdev->vdev->bus_regions), adapter->tx_ring[0].size,
-			    cap_flags);
-	mdev_net_add_cap(&info, VFIO_NET_DESCRIPTORS, VFIO_NET_MDEV_TX);
+	info = &netmdev->vdev->vdev_regions[netmdev->vdev->used_regions++];
 	start = virt_to_phys(adapter->tx_ring[0].desc);
 	len = adapter->tx_ring[0].size;
+	mdev_net_add_region(&info, VFIO_PCI_INDEX_TO_OFFSET(VFIO_NET_MDEV_TX_REGION_INDEX +
+			    netmdev->vdev->bus_regions), len, cap_flags);
+	mdev_net_add_cap(&info, VFIO_NET_DESCRIPTORS, VFIO_NET_MDEV_TX);
 	mdev_net_add_mmap(&info, start, len);
+
+	BUG_ON(netmdev->vdev->used_regions != E1000E_MDEV_USED_REGIONS);
 
 	return 0;
-
 }
 
 void e1000e_destroy_vdev(struct mdev_device *mdev)

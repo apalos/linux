@@ -17,8 +17,6 @@
 #ifndef _E1000E_NETMDEV_H_
 #define _E1000E_NETMDEV_H_
 
-#define E1000E_MDEV_USED_REGIONS 3
-
 #include <linux/netdevice.h>
 
 void e1000e_register_netmdev(struct device *dev);
