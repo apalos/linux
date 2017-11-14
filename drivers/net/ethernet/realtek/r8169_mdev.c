@@ -7,12 +7,31 @@
 #include <linux/netdevice.h>
 
 #include "r8169_private.h"
+//#include "mdev_private.h"
 
 void r8169_mdev_prepare(struct net_device *dev);
 int r8169_mdev_destroy(struct net_device *dev);
 
 /* BAR2, RX/TX queues */
 #define RTL_USED_REGIONS 3
+
+#define to_netdev_queue(obj) container_of(obj, struct netdev_queue, kobj)
+
+#define MDEV_NET_ATTR_RO(_name) \
+	struct kobj_attribute mdev_attr_##_name = __ATTR_RO(_name)
+
+static ssize_t doorbell_offset_show(struct kobject *kobj,
+				    struct kobj_attribute *attr, char *buf)
+{
+	struct netdev_queue *queue = to_netdev_queue(kobj);
+
+	return snprintf(buf, PAGE_SIZE, "%d\n", 1);
+}
+MDEV_NET_ATTR_RO(doorbell_offset);
+
+static const struct attribute *r8169_mdev_attrs[] = {
+	&mdev_attr_doorbell_offset.attr,
+};
 
 static int r8169_init_vdev(struct mdev_device *mdev)
 {
@@ -130,6 +149,9 @@ struct netmdev_driver_ops rtl8169_netmdev_driver_ops =
 void r8169_register_netmdev(struct device *dev)
 {
 	int (*register_device)(struct device *d , struct netmdev_driver_ops *ops);
+	struct pci_dev *pdev = to_pci_dev(dev);
+	struct net_device *ndev = pci_get_drvdata(pdev);
+	struct netdev_queue *queue = &ndev->_tx[0];
 
 	register_device  = symbol_get(netmdev_register_device);
 	if (!register_device)
@@ -140,11 +162,18 @@ void r8169_register_netmdev(struct device *dev)
 		dev_info(dev, "Successfully registered net_mdev device\n");
 	symbol_put(netmdev_register_device);
 
+	//netdev_queue_default_attrs
+	sysfs_create_files(&queue->kobj, r8169_mdev_attrs);
 }
 
 void r8169_unregister_netmdev(struct device *dev)
 {
 	int (*unregister_device)(struct device*);
+	struct pci_dev *pdev = to_pci_dev(dev);
+	struct net_device *ndev = pci_get_drvdata(pdev);
+	struct netdev_queue *queue = &ndev->_tx[0];
+
+	sysfs_remove_files(&queue->kobj, r8169_mdev_attrs);
 
 	unregister_device = symbol_get(netmdev_unregister_device);
 	if (!unregister_device)
