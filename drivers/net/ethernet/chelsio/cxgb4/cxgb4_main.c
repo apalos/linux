@@ -65,6 +65,7 @@
 #include <net/addrconf.h>
 #include <linux/uaccess.h>
 #include <linux/crash_dump.h>
+#include <linux/net_mdev.h>
 
 #include "cxgb4.h"
 #include "cxgb4_filter.h"
@@ -4830,6 +4831,171 @@ static int cxgb4_iov_configure(struct pci_dev *pdev, int num_vfs)
 }
 #endif
 
+#ifdef CONFIG_SYSFS
+static ssize_t tx_channel_show(struct device *dev,
+				    struct device_attribute *attr, char *buf)
+{
+	struct port_info *pi = netdev_priv(to_net_dev(dev));
+
+	return sprintf(buf, "0x%x", pi->tx_chan);
+}
+static DEVICE_ATTR(tx_channel, 0444, tx_channel_show, NULL);
+
+static ssize_t phys_function_show(struct device *dev,
+				    struct device_attribute *attr, char *buf)
+{
+	struct port_info *pi = netdev_priv(to_net_dev(dev));
+
+	return sprintf(buf, "0x%x", pi->adapter->pf);
+}
+static DEVICE_ATTR(phys_function, 0444, phys_function_show, NULL);
+
+static ssize_t free_list_align_show(struct device *dev,
+				    struct device_attribute *attr, char *buf)
+{
+	struct port_info *pi = netdev_priv(to_net_dev(dev));
+
+	return sprintf(buf, "0x%x", pi->adapter->sge.fl_align);
+}
+static DEVICE_ATTR(free_list_align, 0444, free_list_align_show, NULL);
+
+static struct attribute *cxgb4_sysfs_attrs[] = {
+	&dev_attr_tx_channel.attr,
+	&dev_attr_phys_function.attr,
+	&dev_attr_free_list_align.attr,
+	NULL
+};
+
+static const struct attribute_group cxgb4_sysfs_group = {
+	.attrs = cxgb4_sysfs_attrs
+};
+
+static ssize_t rx_queue_doorbell_offset_show(struct netdev_rx_queue *queue,
+		struct rx_queue_attribute *attribute, char *buf)
+{
+	struct port_info *pi = netdev_priv(queue->dev);
+	unsigned int queue_index = get_netdev_rx_queue_index(queue);
+	struct sge_rspq *iq = &pi->adapter->sge.ethrxq[queue_index].rspq;
+	uint32_t doorbell_offset;
+
+	BUG_ON(queue_index >= pi->nqsets);
+
+	if (iq->bar2_addr)
+		doorbell_offset =
+		    iq->bar2_addr - pi->adapter->bar2 + SGE_UDB_KDOORBELL;
+	else
+		doorbell_offset = MYPF_REG(SGE_PF_KDOORBELL_A);
+
+	return sprintf(buf, "0x%x", doorbell_offset);
+}
+
+static struct rx_queue_attribute rx_queue_doorbell_offset_attribute = {
+	.attr = { .name = "doorbell_offset", .mode = S_IRUGO },
+	.show = rx_queue_doorbell_offset_show
+};
+
+static ssize_t rx_queue_doorbell_key_show(struct netdev_rx_queue *queue,
+		struct rx_queue_attribute *attribute, char *buf)
+{
+	struct port_info *pi = netdev_priv(queue->dev);
+	unsigned int rxq_idx = get_netdev_rx_queue_index(queue);
+	struct sge_rspq *rxq = &pi->adapter->sge.ethrxq[rxq_idx].rspq;
+	uint32_t doorbell_key;
+
+	BUG_ON(rxq_idx >= pi->nqsets);
+
+	if (rxq->bar2_addr)
+		doorbell_key = QID_V(rxq->bar2_qid);
+	else
+		doorbell_key = QID_V(rxq->cntxt_id);
+
+	return sprintf(buf, "0x%x", doorbell_key);
+}
+
+static struct rx_queue_attribute rx_queue_doorbell_key_attribute = {
+	.attr = { .name = "doorbell_key", .mode = S_IRUGO },
+	.show = rx_queue_doorbell_key_show
+};
+
+static struct attribute *cxgb4_sysfs_rx_queue_attrs[] = {
+	&rx_queue_doorbell_offset_attribute.attr,
+	&rx_queue_doorbell_key_attribute.attr,
+	NULL
+};
+
+static const struct attribute_group cxgb4_sysfs_rx_queue_group = {
+	.name = "cxgb4",
+	.attrs = cxgb4_sysfs_rx_queue_attrs
+};
+
+static inline unsigned int get_netdev_tx_queue_index(struct netdev_queue *queue)
+{
+	struct net_device *dev = queue->dev;
+	int index = queue - dev->_tx;
+
+	BUG_ON(index >= dev->num_tx_queues);
+	return index;
+}
+
+static ssize_t tx_queue_doorbell_offset_show(struct netdev_queue *queue,
+		struct netdev_queue_attribute *attribute, char *buf)
+{
+	struct port_info *pi = netdev_priv(queue->dev);
+	unsigned int txq_idx = get_netdev_tx_queue_index(queue);
+	struct sge_txq *txq = &pi->adapter->sge.ethtxq[txq_idx].q;
+	uint32_t doorbell_offset;
+
+	BUG_ON(txq_idx >= pi->nqsets);
+
+	if (txq->bar2_addr)
+		doorbell_offset = txq->bar2_addr - pi->adapter->bar2 +
+				  SGE_UDB_KDOORBELL;
+	else
+		doorbell_offset = MYPF_REG(SGE_PF_KDOORBELL_A);
+
+	return sprintf(buf, "0x%x", doorbell_offset);
+}
+
+static struct netdev_queue_attribute tx_queue_doorbell_offset_attribute = {
+	.attr = { .name = "doorbell_offset", .mode = S_IRUGO },
+	.show = tx_queue_doorbell_offset_show
+};
+
+static ssize_t tx_queue_doorbell_key_show(struct netdev_queue *queue,
+		struct netdev_queue_attribute *attribute, char *buf)
+{
+	struct port_info *pi = netdev_priv(queue->dev);
+	unsigned int txq_idx = get_netdev_tx_queue_index(queue);
+	struct sge_txq *txq = &pi->adapter->sge.ethtxq[txq_idx].q;
+	uint32_t doorbell_key;
+
+	BUG_ON(txq_idx >= pi->nqsets);
+
+	if (txq->bar2_addr)
+		doorbell_key = QID_V(txq->bar2_qid);
+	else
+		doorbell_key = QID_V(txq->cntxt_id);
+
+	return sprintf(buf, "0x%x", doorbell_key);
+}
+
+static struct netdev_queue_attribute tx_queue_doorbell_key_attribute = {
+	.attr = { .name = "doorbell_key", .mode = S_IRUGO },
+	.show = tx_queue_doorbell_key_show
+};
+
+static struct attribute *cxgb4_sysfs_tx_queue_attrs[] = {
+	&tx_queue_doorbell_offset_attribute.attr,
+	&tx_queue_doorbell_key_attribute.attr,
+	NULL
+};
+
+static const struct attribute_group cxgb4_sysfs_tx_queue_group = {
+	.name = "cxgb4",
+	.attrs = cxgb4_sysfs_tx_queue_attrs
+};
+#endif
+
 static int init_one(struct pci_dev *pdev, const struct pci_device_id *ent)
 {
 	int func, i, err, s_qpp, qpp, num_seg;
@@ -5176,8 +5342,17 @@ static int init_one(struct pci_dev *pdev, const struct pci_device_id *ent)
 	 * register at least one net device.
 	 */
 	for_each_port(adapter, i) {
+#ifdef CONFIG_SYSFS
+		int txq_idx;
+
+		adapter->port[i]->sysfs_groups[0] = &cxgb4_sysfs_group;
+		adapter->port[i]->sysfs_rx_queue_group =
+		    &cxgb4_sysfs_rx_queue_group;
+#endif
+
 		pi = adap2pinfo(adapter, i);
 		adapter->port[i]->dev_port = pi->lport;
+
 		netif_set_real_num_tx_queues(adapter->port[i], pi->nqsets);
 		netif_set_real_num_rx_queues(adapter->port[i], pi->nqsets);
 
@@ -5186,6 +5361,20 @@ static int init_one(struct pci_dev *pdev, const struct pci_device_id *ent)
 		err = register_netdev(adapter->port[i]);
 		if (err)
 			break;
+
+#ifdef CONFIG_SYSFS
+		/* TODO: redo this crap using sysfs_tx_queue_group */
+		for (txq_idx = 0; !err && txq_idx < pi->nqsets; txq_idx++) {
+			struct netdev_queue *queue = &adapter->port[i]->_tx[txq_idx];
+			err = sysfs_create_group(&queue->kobj,
+						 &cxgb4_sysfs_tx_queue_group);
+		}
+		if (err) {
+			unregister_netdev(adapter->port[i]);
+			break;
+		}
+#endif
+
 		adapter->chan_map[pi->tx_chan] = i;
 		print_port_info(adapter->port[i]);
 	}
