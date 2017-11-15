@@ -108,4 +108,7 @@ void mdev_net_add_region(struct mdev_net_regions **vdev_regions,
 void mdev_net_add_mmap(struct mdev_net_regions **vdev_regions,
 		       phys_addr_t start, u64 len);
 
+void mdev_net_add_sparse(struct mdev_net_regions **vdev_regions,
+			 __u32 nr_areas, __u64 offset[], __u64 size[]);
+
 #endif /* MDEV_H */

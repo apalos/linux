@@ -14,8 +14,9 @@ int r8169_mdev_destroy(struct net_device *dev);
 /* BAR2, RX/TX queues */
 #define RTL_USED_REGIONS 3
 
+/* per queue */
 static ssize_t doorbell_offset_show(struct netdev_queue *queue,
-				    struct netdev_queue_attribute *attribute,
+				    struct netdev_queue_attribute *attr,
 				    char *buf)
 {
 	struct net_device *dev = queue->dev;
@@ -162,6 +163,7 @@ void r8169_register_netmdev(struct device *dev)
 		dev_info(dev, "Successfully registered net_mdev device\n");
 	symbol_put(netmdev_register_device);
 
+	/* XXX FIXME check successful creation */
 	sysfs_create_files(&queue->kobj, r8169_mdev_attrs);
 }
 

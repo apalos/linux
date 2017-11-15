@@ -728,6 +728,19 @@ void mdev_net_add_cap(struct mdev_net_regions **vdev_regions,
 }
 EXPORT_SYMBOL(mdev_net_add_cap);
 
+void mdev_net_add_sparse(struct mdev_net_regions **vdev_regions,
+			 __u32 nr_areas, __u64 offset[], __u64 size[])
+{
+	int i;
+
+	(*vdev_regions)->caps.nr_areas = nr_areas;
+	for (i = 0; i < nr_areas; i++) {
+		(*vdev_regions)->caps.sparse[i].offset = offset[i];
+		(*vdev_regions)->caps.sparse[i].size = size[i];
+	}
+}
+EXPORT_SYMBOL(mdev_net_add_sparse);
+
 void mdev_net_add_mmap(struct mdev_net_regions **vdev_regions,
 		       phys_addr_t start, u64 len)
 {
