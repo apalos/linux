@@ -4830,6 +4830,70 @@ static int cxgb4_iov_configure(struct pci_dev *pdev, int num_vfs)
 }
 #endif
 
+#ifdef CONFIG_SYSFS
+static ssize_t rx_queue_doorbell_offset_show(struct netdev_rx_queue *queue,
+		struct rx_queue_attribute *attribute, char *buf)
+{
+	struct port_info *pi = netdev_priv(queue->dev);
+	unsigned int queue_index = get_netdev_rx_queue_index(queue);
+	struct sge_rspq *iq = &pi->adapter->sge.ethrxq[queue_index].rspq;
+	uint32_t doorbell_offset;
+
+	BUG_ON(queue_index >= pi->nqsets);
+
+	iq = &pi->adapter->sge.ethrxq[queue_index].rspq;
+
+	if (iq->bar2_addr)
+		doorbell_offset =
+		    iq->bar2_addr - pi->adapter->bar2 + SGE_UDB_KDOORBELL;
+	else
+		doorbell_offset = MYPF_REG(SGE_PF_KDOORBELL_A);
+
+	return sprintf(buf, "0x%x\n", doorbell_offset);
+}
+
+static struct rx_queue_attribute rx_queue_doorbell_offset_attribute = {
+	.attr = { .name = "doorbell_offset", .mode = S_IRUGO },
+	.show = rx_queue_doorbell_offset_show
+};
+
+static ssize_t rx_queue_doorbell_key_show(struct netdev_rx_queue *queue,
+		struct rx_queue_attribute *attribute, char *buf)
+{
+	struct port_info *pi = netdev_priv(queue->dev);
+	unsigned int queue_index = get_netdev_rx_queue_index(queue);
+	struct sge_rspq *iq = &pi->adapter->sge.ethrxq[queue_index].rspq;
+	uint32_t doorbell_key;
+
+	BUG_ON(queue_index >= pi->nqsets);
+
+	iq = &pi->adapter->sge.ethrxq[queue_index].rspq;
+
+	if (iq->bar2_addr)
+		doorbell_key = QID_V(iq->bar2_qid);
+	else
+		doorbell_key = QID_V(iq->cntxt_id);
+
+	return sprintf(buf, "0x%x\n", doorbell_key);
+}
+
+static struct rx_queue_attribute rx_queue_doorbell_key_attribute = {
+	.attr = { .name = "doorbell_key", .mode = S_IRUGO },
+	.show = rx_queue_doorbell_key_show
+};
+
+static struct attribute *cxgb4_sysfs_rx_queue_attrs[] = {
+	&rx_queue_doorbell_offset_attribute.attr,
+	&rx_queue_doorbell_key_attribute.attr,
+	NULL
+};
+
+static const struct attribute_group cxgb4_sysfs_rx_queue_group = {
+	.name = "cxgb4",
+	.attrs = cxgb4_sysfs_rx_queue_attrs
+};
+#endif
+
 static int init_one(struct pci_dev *pdev, const struct pci_device_id *ent)
 {
 	int func, i, err, s_qpp, qpp, num_seg;
@@ -5178,6 +5242,12 @@ static int init_one(struct pci_dev *pdev, const struct pci_device_id *ent)
 	for_each_port(adapter, i) {
 		pi = adap2pinfo(adapter, i);
 		adapter->port[i]->dev_port = pi->lport;
+
+#ifdef CONFIG_SYSFS
+		adapter->port[i]->sysfs_rx_queue_group =
+		    &cxgb4_sysfs_rx_queue_group;
+#endif
+
 		netif_set_real_num_tx_queues(adapter->port[i], pi->nqsets);
 		netif_set_real_num_rx_queues(adapter->port[i], pi->nqsets);
 
