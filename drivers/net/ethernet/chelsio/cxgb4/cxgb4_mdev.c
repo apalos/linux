@@ -44,6 +44,25 @@
 
 struct net_device *mdev_get_netdev(struct mdev_device *mdev);
 
+static ssize_t doorbell_offset_show(struct netdev_queue *queue,
+				    struct netdev_queue_attribute *attribute,
+				    char *buf)
+{
+	struct net_device *ndev = queue->dev;
+	unsigned int i;
+
+	i = queue - ndev->_tx;
+	BUG_ON(i >= ndev->num_tx_queues);
+
+	return snprintf(buf, PAGE_SIZE, "%d\n", 1);
+}
+MDEV_NET_ATTR_RO(doorbell_offset);
+
+static const struct attribute *cxgb4_mdev_attrs[] = {
+	&mdev_attr_doorbell_offset.attr,
+	NULL,
+};
+
 static int cxgb4_init_vdev(struct mdev_device *mdev)
 {
 	struct netmdev *netmdev = mdev_get_drvdata(mdev);
@@ -104,7 +123,6 @@ static int cxgb4_init_vdev(struct mdev_device *mdev)
 		mdev_net_add_cap(&info, VFIO_NET_DESCRIPTORS, VFIO_NET_MDEV_RX);
 		mdev_net_add_mmap(&info, start, len);
 		//sparse free list/
-		//mdev_net_add_cap(&info, VFIO_NET_PRIV, VFIO_NET_PRIVDATA);
 	}
 	/* Rx free list */
 	for (i = 0; i < pi->nqsets; i++) {
@@ -200,6 +218,10 @@ void cxgb4_register_netmdev(struct device *dev)
 {
 	int (*register_device)(struct device *d,
 			       struct netmdev_driver_ops *ops);
+	struct pci_dev *pdev = to_pci_dev(dev);
+	struct net_device *ndev = pci_get_drvdata(pdev);
+	struct netdev_queue *queue = NULL;
+	int ret, i;
 
 	register_device = symbol_get(netmdev_register_device);
 	if (!register_device)
@@ -210,13 +232,27 @@ void cxgb4_register_netmdev(struct device *dev)
 	else
 		dev_info(dev, "Successfully registered net_mdev device\n");
 
+	for (i = 0; i < ndev->num_tx_queues; i++) {
+		queue = &ndev->_tx[i];
+		ret = sysfs_create_files(&queue->kobj, cxgb4_mdev_attrs);
+		if (ret)
+			return;
+	}
 	symbol_put(netmdev_register_device);
 }
 
 void cxgb4_unregister_netmdev(struct device *dev)
 {
 	int (*unregister_device)(struct device *d);
+	struct pci_dev *pdev = to_pci_dev(dev);
+	struct net_device *ndev = pci_get_drvdata(pdev);
+	struct netdev_queue *queue = &ndev->_tx[0];
+	int i;
 
+	for (i = 0; i < ndev->num_tx_queues; i++) {
+		queue = &ndev->_tx[i];
+		sysfs_remove_files(&queue->kobj, cxgb4_mdev_attrs);
+	}
 	unregister_device = symbol_get(netmdev_unregister_device);
 	if (!unregister_device)
 		return;

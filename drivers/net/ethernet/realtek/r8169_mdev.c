@@ -7,7 +7,6 @@
 #include <linux/netdevice.h>
 
 #include "r8169_private.h"
-//#include "mdev_private.h"
 
 void r8169_mdev_prepare(struct net_device *dev);
 int r8169_mdev_destroy(struct net_device *dev);
@@ -15,15 +14,15 @@ int r8169_mdev_destroy(struct net_device *dev);
 /* BAR2, RX/TX queues */
 #define RTL_USED_REGIONS 3
 
-#define to_netdev_queue(obj) container_of(obj, struct netdev_queue, kobj)
-
-#define MDEV_NET_ATTR_RO(_name) \
-	struct kobj_attribute mdev_attr_##_name = __ATTR_RO(_name)
-
-static ssize_t doorbell_offset_show(struct kobject *kobj,
-				    struct kobj_attribute *attr, char *buf)
+static ssize_t doorbell_offset_show(struct netdev_queue *queue,
+				    struct netdev_queue_attribute *attribute,
+				    char *buf)
 {
-	struct netdev_queue *queue = to_netdev_queue(kobj);
+	struct net_device *dev = queue->dev;
+	unsigned int i;
+
+	i = queue - dev->_tx;
+	BUG_ON(i >= dev->num_tx_queues);
 
 	return snprintf(buf, PAGE_SIZE, "%d\n", 1);
 }
@@ -31,6 +30,7 @@ MDEV_NET_ATTR_RO(doorbell_offset);
 
 static const struct attribute *r8169_mdev_attrs[] = {
 	&mdev_attr_doorbell_offset.attr,
+	NULL,
 };
 
 static int r8169_init_vdev(struct mdev_device *mdev)
@@ -162,7 +162,6 @@ void r8169_register_netmdev(struct device *dev)
 		dev_info(dev, "Successfully registered net_mdev device\n");
 	symbol_put(netmdev_register_device);
 
-	//netdev_queue_default_attrs
 	sysfs_create_files(&queue->kobj, r8169_mdev_attrs);
 }
 
