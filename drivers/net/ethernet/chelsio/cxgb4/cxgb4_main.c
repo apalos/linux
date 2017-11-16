@@ -4832,6 +4832,44 @@ static int cxgb4_iov_configure(struct pci_dev *pdev, int num_vfs)
 #endif
 
 #ifdef CONFIG_SYSFS
+static ssize_t tx_channel_show(struct device *dev,
+				    struct device_attribute *attr, char *buf)
+{
+	struct port_info *pi = netdev_priv(to_net_dev(dev));
+
+	return sprintf(buf, "0x%x\n", pi->tx_chan);
+}
+static DEVICE_ATTR(tx_channel, 0444, tx_channel_show, NULL);
+
+static ssize_t phys_function_show(struct device *dev,
+				    struct device_attribute *attr, char *buf)
+{
+	struct port_info *pi = netdev_priv(to_net_dev(dev));
+
+	return sprintf(buf, "0x%x\n", pi->adapter->pf);
+}
+static DEVICE_ATTR(phys_function, 0444, phys_function_show, NULL);
+
+static ssize_t free_list_align_show(struct device *dev,
+				    struct device_attribute *attr, char *buf)
+{
+	struct port_info *pi = netdev_priv(to_net_dev(dev));
+
+	return sprintf(buf, "0x%x\n", pi->adapter->sge.fl_align);
+}
+static DEVICE_ATTR(free_list_align, 0444, free_list_align_show, NULL);
+
+static struct attribute *cxgb4_sysfs_attrs[] = {
+	&dev_attr_tx_channel.attr,
+	&dev_attr_phys_function.attr,
+	&dev_attr_free_list_align.attr,
+	NULL
+};
+
+static const struct attribute_group cxgb4_sysfs_group = {
+	.attrs = cxgb4_sysfs_attrs
+};
+
 static ssize_t rx_queue_doorbell_offset_show(struct netdev_rx_queue *queue,
 		struct rx_queue_attribute *attribute, char *buf)
 {
@@ -5302,6 +5340,7 @@ static int init_one(struct pci_dev *pdev, const struct pci_device_id *ent)
 #ifdef CONFIG_SYSFS
 		int txq_idx;
 
+		adapter->port[i]->sysfs_groups[0] = &cxgb4_sysfs_group;
 		adapter->port[i]->sysfs_rx_queue_group =
 		    &cxgb4_sysfs_rx_queue_group;
 #endif
