@@ -19,12 +19,15 @@
 enum net_mdev_types {
 	VFIO_NET_MDEV_SHADOW,
 	VFIO_NET_DESCRIPTORS,
+	VFIO_NET_MMIO,
 };
 
+/* FIXME split subtypes properly */
 enum net_mdev_subtypes {
 	VFIO_NET_MDEV_STATS,
 	VFIO_NET_MDEV_RX,
 	VFIO_NET_MDEV_TX,
+	VFIO_NET_MDEV_BARS,
 };
 
 enum vfio_net_mdev_regions {
