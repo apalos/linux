@@ -4837,7 +4837,7 @@ static ssize_t tx_channel_show(struct device *dev,
 {
 	struct port_info *pi = netdev_priv(to_net_dev(dev));
 
-	return sprintf(buf, "0x%x\n", pi->tx_chan);
+	return sprintf(buf, "0x%x", pi->tx_chan);
 }
 static DEVICE_ATTR(tx_channel, 0444, tx_channel_show, NULL);
 
@@ -4846,7 +4846,7 @@ static ssize_t phys_function_show(struct device *dev,
 {
 	struct port_info *pi = netdev_priv(to_net_dev(dev));
 
-	return sprintf(buf, "0x%x\n", pi->adapter->pf);
+	return sprintf(buf, "0x%x", pi->adapter->pf);
 }
 static DEVICE_ATTR(phys_function, 0444, phys_function_show, NULL);
 
@@ -4855,7 +4855,7 @@ static ssize_t free_list_align_show(struct device *dev,
 {
 	struct port_info *pi = netdev_priv(to_net_dev(dev));
 
-	return sprintf(buf, "0x%x\n", pi->adapter->sge.fl_align);
+	return sprintf(buf, "0x%x", pi->adapter->sge.fl_align);
 }
 static DEVICE_ATTR(free_list_align, 0444, free_list_align_show, NULL);
 
@@ -4886,7 +4886,7 @@ static ssize_t rx_queue_doorbell_offset_show(struct netdev_rx_queue *queue,
 	else
 		doorbell_offset = MYPF_REG(SGE_PF_KDOORBELL_A);
 
-	return sprintf(buf, "0x%x\n", doorbell_offset);
+	return sprintf(buf, "0x%x", doorbell_offset);
 }
 
 static struct rx_queue_attribute rx_queue_doorbell_offset_attribute = {
@@ -4909,7 +4909,7 @@ static ssize_t rx_queue_doorbell_key_show(struct netdev_rx_queue *queue,
 	else
 		doorbell_key = QID_V(rxq->cntxt_id);
 
-	return sprintf(buf, "0x%x\n", doorbell_key);
+	return sprintf(buf, "0x%x", doorbell_key);
 }
 
 static struct rx_queue_attribute rx_queue_doorbell_key_attribute = {
@@ -4953,7 +4953,7 @@ static ssize_t tx_queue_doorbell_offset_show(struct netdev_queue *queue,
 	else
 		doorbell_offset = MYPF_REG(SGE_PF_KDOORBELL_A);
 
-	return sprintf(buf, "0x%x\n", doorbell_offset);
+	return sprintf(buf, "0x%x", doorbell_offset);
 }
 
 static struct netdev_queue_attribute tx_queue_doorbell_offset_attribute = {
@@ -4976,7 +4976,7 @@ static ssize_t tx_queue_doorbell_key_show(struct netdev_queue *queue,
 	else
 		doorbell_key = QID_V(txq->cntxt_id);
 
-	return sprintf(buf, "0x%x\n", doorbell_key);
+	return sprintf(buf, "0x%x", doorbell_key);
 }
 
 static struct netdev_queue_attribute tx_queue_doorbell_key_attribute = {
