@@ -5360,7 +5360,7 @@ static int init_one(struct pci_dev *pdev, const struct pci_device_id *ent)
 #ifdef CONFIG_SYSFS
 		/* TODO: redo this crap using sysfs_tx_queue_group */
 		for (txq_idx = 0; !err && txq_idx < pi->nqsets; txq_idx++) {
-			struct netdev_queue *queue = &adapter->port[i]->_tx[i];
+			struct netdev_queue *queue = &adapter->port[i]->_tx[txq_idx];
 			err = sysfs_create_files(&queue->kobj,
 						 cxgb4_sysfs_tx_queue_attrs);
 		}
