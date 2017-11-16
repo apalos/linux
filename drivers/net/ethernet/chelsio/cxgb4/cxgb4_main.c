@@ -4984,10 +4984,15 @@ static struct netdev_queue_attribute tx_queue_doorbell_key_attribute = {
 	.show = tx_queue_doorbell_key_show
 };
 
-static const struct attribute *cxgb4_sysfs_tx_queue_attrs[] = {
+static struct attribute *cxgb4_sysfs_tx_queue_attrs[] = {
 	&tx_queue_doorbell_offset_attribute.attr,
 	&tx_queue_doorbell_key_attribute.attr,
 	NULL
+};
+
+static const struct attribute_group cxgb4_sysfs_tx_queue_group = {
+	.name = "cxgb4",
+	.attrs = cxgb4_sysfs_tx_queue_attrs
 };
 #endif
 
@@ -5361,8 +5366,8 @@ static int init_one(struct pci_dev *pdev, const struct pci_device_id *ent)
 		/* TODO: redo this crap using sysfs_tx_queue_group */
 		for (txq_idx = 0; !err && txq_idx < pi->nqsets; txq_idx++) {
 			struct netdev_queue *queue = &adapter->port[i]->_tx[txq_idx];
-			err = sysfs_create_files(&queue->kobj,
-						 cxgb4_sysfs_tx_queue_attrs);
+			err = sysfs_create_group(&queue->kobj,
+						 &cxgb4_sysfs_tx_queue_group);
 		}
 		if (err) {
 			unregister_netdev(adapter->port[i]);
