@@ -44,40 +44,6 @@
 
 struct net_device *mdev_get_netdev(struct mdev_device *mdev);
 
-/* per queue */
-static ssize_t doorbell_offset_show(struct netdev_queue *queue,
-				    struct netdev_queue_attribute *attribute,
-				    char *buf)
-{
-	struct net_device *ndev = queue->dev;
-	unsigned int i;
-
-	i = queue - ndev->_tx;
-	BUG_ON(i >= ndev->num_tx_queues);
-
-	return snprintf(buf, PAGE_SIZE, "%d\n", 1);
-}
-MDEV_NET_ATTR_RO(doorbell_offset);
-
-static const struct attribute *cxgb4_mdev_attrs[] = {
-	&mdev_attr_doorbell_offset.attr,
-	NULL,
-};
-
-/* per device */
-static ssize_t fl_size_show(struct device *dev, struct device_attribute *attr,
-			    char *buf)
-{
-	return snprintf(buf, PAGE_SIZE, "%d\n", 1);
-}
-DEVICE_ATTR_RO(fl_size);
-
-static const struct attribute *cxgb4_net_device_attrs[] = {
-	&dev_attr_fl_size.attr,
-	NULL,
-};
-
-
 static int cxgb4_init_vdev(struct mdev_device *mdev)
 {
 	struct netmdev *netmdev = mdev_get_drvdata(mdev);
@@ -149,6 +115,7 @@ static int cxgb4_init_vdev(struct mdev_device *mdev)
 		len = (fl->size * sizeof(*fl->desc)) + s->stat_len;
 		mdev_net_add_sparse(&info, 1, &start, &len);
 	}
+
 	/* Tx */
 	for (i = 0; i < pi->nqsets; i++) {
 		/* Tx */
@@ -182,7 +149,6 @@ void cxgb4_destroy_vdev(struct mdev_device *mdev)
 	}
 }
 
-
 static int cxgb4_transition_start(struct mdev_device *mdev)
 {
 	struct net_device *netdev = mdev_get_netdev(mdev);
@@ -202,7 +168,6 @@ static int cxgb4_transition_start(struct mdev_device *mdev)
 	ret = cxgb4_init_vdev(mdev);
 	if (ret)
 		return -EINVAL;
-
 
 	return 0;
 }
@@ -232,10 +197,6 @@ void cxgb4_register_netmdev(struct device *dev)
 {
 	int (*register_device)(struct device *d,
 			       struct netmdev_driver_ops *ops);
-	struct pci_dev *pdev = to_pci_dev(dev);
-	struct net_device *ndev = pci_get_drvdata(pdev);
-	struct netdev_queue *queue = NULL;
-	int ret, i;
 
 	register_device = symbol_get(netmdev_register_device);
 	if (!register_device)
@@ -246,30 +207,13 @@ void cxgb4_register_netmdev(struct device *dev)
 	else
 		dev_info(dev, "Successfully registered net_mdev device\n");
 
-	for (i = 0; i < ndev->num_tx_queues; i++) {
-		queue = &ndev->_tx[i];
-		ret = sysfs_create_files(&queue->kobj, cxgb4_mdev_attrs);
-		if (ret)
-			return;
-	}
-	sysfs_create_files(&ndev->dev.kobj, cxgb4_net_device_attrs);
-
 	symbol_put(netmdev_register_device);
 }
 
 void cxgb4_unregister_netmdev(struct device *dev)
 {
 	int (*unregister_device)(struct device *d);
-	struct pci_dev *pdev = to_pci_dev(dev);
-	struct net_device *ndev = pci_get_drvdata(pdev);
-	struct netdev_queue *queue = &ndev->_tx[0];
-	int i;
 
-	sysfs_remove_files(&ndev->dev.kobj, cxgb4_net_device_attrs);
-	for (i = 0; i < ndev->num_tx_queues; i++) {
-		queue = &ndev->_tx[i];
-		sysfs_remove_files(&queue->kobj, cxgb4_mdev_attrs);
-	}
 	unregister_device = symbol_get(netmdev_unregister_device);
 	if (!unregister_device)
 		return;
