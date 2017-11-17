@@ -21,12 +21,8 @@ static int r8169_init_vdev(struct mdev_device *mdev)
 	struct rtl8169_private *tp;
 	struct mdev_net_regions *info;
 	struct pci_dev *pdev;
-	int cap_flags = VFIO_REGION_INFO_FLAG_READ |
-		VFIO_REGION_INFO_FLAG_WRITE |
-		VFIO_REGION_INFO_FLAG_MMAP |
-		VFIO_REGION_INFO_FLAG_CAPS;
 	phys_addr_t start;
-	u64 len;
+	u64 len, idx;
 
 	tp = netdev_priv(netdev);
 	if (!tp)
@@ -56,28 +52,27 @@ static int r8169_init_vdev(struct mdev_device *mdev)
 	info = &netmdev->vdev->vdev_regions[netmdev->vdev->used_regions++];
 	start = pci_resource_start(pdev, VFIO_PCI_BAR2_REGION_INDEX);
 	len = pci_resource_len(pdev, VFIO_PCI_BAR2_REGION_INDEX);
-	mdev_net_add_region(&info, VFIO_PCI_INDEX_TO_OFFSET(VFIO_PCI_BAR2_REGION_INDEX),
-			    len, cap_flags);
-	mdev_net_add_cap(&info, VFIO_NET_MMIO, VFIO_NET_MDEV_BARS);
-	mdev_net_add_mmap(&info, start, len);
+	idx = VFIO_PCI_INDEX_TO_OFFSET(VFIO_PCI_BAR2_REGION_INDEX);
+	mdev_net_add_essential(info, idx, len, VFIO_NET_MMIO, VFIO_NET_MDEV_BARS,
+			       start);
 
 	/* Rx */
 	info = &netmdev->vdev->vdev_regions[netmdev->vdev->used_regions++];
 	start = virt_to_phys(tp->RxDescArray);
 	len = R8169_RX_RING_BYTES;
-	mdev_net_add_region(&info, VFIO_PCI_INDEX_TO_OFFSET(VFIO_NET_MDEV_RX_REGION_INDEX +
-			    netmdev->vdev->bus_regions), len, cap_flags);
-	mdev_net_add_cap(&info, VFIO_NET_DESCRIPTORS, VFIO_NET_MDEV_RX);
-	mdev_net_add_mmap(&info, start, len);
+	idx = VFIO_PCI_INDEX_TO_OFFSET(VFIO_NET_MDEV_RX_REGION_INDEX +
+			netmdev->vdev->bus_regions);
+	mdev_net_add_essential(info, idx, len, VFIO_NET_DESCRIPTORS,
+			       VFIO_NET_MDEV_RX, start);
 
 	/* Tx */
 	info = &netmdev->vdev->vdev_regions[netmdev->vdev->used_regions++];
 	start = virt_to_phys(tp->TxDescArray);
 	len = R8169_TX_RING_BYTES;
-	mdev_net_add_region(&info, VFIO_PCI_INDEX_TO_OFFSET(VFIO_NET_MDEV_TX_REGION_INDEX +
-			    netmdev->vdev->bus_regions), len, cap_flags);
-	mdev_net_add_cap(&info, VFIO_NET_DESCRIPTORS, VFIO_NET_MDEV_TX);
-	mdev_net_add_mmap(&info, start, len);
+	idx = VFIO_PCI_INDEX_TO_OFFSET(VFIO_NET_MDEV_TX_REGION_INDEX +
+			netmdev->vdev->bus_regions);
+	mdev_net_add_essential(info, idx, len, VFIO_NET_DESCRIPTORS,
+			       VFIO_NET_MDEV_TX, start);
 
 	BUG_ON(netmdev->vdev->used_regions != RTL_USED_REGIONS);
 
