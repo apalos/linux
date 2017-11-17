@@ -99,14 +99,18 @@ struct netmdev {
 int netmdev_register_device(struct device* dev, struct netmdev_driver_ops *ops);
 int netmdev_unregister_device(struct device* dev);
 struct net_device *mdev_get_netdev(struct mdev_device *mdev);
-void mdev_net_add_cap(struct mdev_net_regions **vdev_regions,
+void mdev_net_add_cap(struct mdev_net_regions *vdev_regions,
 		      __u32 type, __u32 subtype);
-void mdev_net_add_region(struct mdev_net_regions **vdev_regions,
+void mdev_net_add_region(struct mdev_net_regions *vdev_regions,
 			 __u64 offset, __u64 size, __u32 flags);
-void mdev_net_add_mmap(struct mdev_net_regions **vdev_regions,
+void mdev_net_add_mmap(struct mdev_net_regions *vdev_regions,
 		       phys_addr_t start, u64 len);
 
-void mdev_net_add_sparse(struct mdev_net_regions **vdev_regions,
+void mdev_net_add_sparse(struct mdev_net_regions *vdev_regions,
 			 __u32 nr_areas, __u64 offset[], __u64 size[]);
+
+void mdev_net_add_essential(struct mdev_net_regions *vdev_regions,
+			    __u64 offset, __u64 len, __u32 type, __u32 subtype,
+			    phys_addr_t start);
 
 #endif /* MDEV_H */
