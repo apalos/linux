@@ -703,9 +703,9 @@ int netmdev_register_device(struct device *dev, struct netmdev_driver_ops *ops)
 EXPORT_SYMBOL(netmdev_register_device);
 
 void mdev_net_add_region(struct mdev_net_regions *vdev_regions,
-			 __u64 offset, __u64 len, __u32 flags)
+			 __u64 offset, __u64 size, __u32 flags)
 {
-	vdev_regions->size = PAGE_ALIGN(len);
+	vdev_regions->size = PAGE_ALIGN(size);
 	vdev_regions->offset = offset;
 	vdev_regions->flags = flags;
 }
@@ -727,16 +727,16 @@ void mdev_net_add_sparse(struct mdev_net_regions *vdev_regions,
 	vdev_regions->caps.nr_areas = nr_areas;
 	for (i = 0; i < nr_areas; i++) {
 		vdev_regions->caps.sparse[i].offset = offset[i];
-		vdev_regions->caps.sparse[i].size = size[i];
+		vdev_regions->caps.sparse[i].size = PAGE_ALIGN(size[i]);
 	}
 }
 EXPORT_SYMBOL(mdev_net_add_sparse);
 
 void mdev_net_add_mmap(struct mdev_net_regions *vdev_regions,
-		       phys_addr_t start, __u64 len)
+		       phys_addr_t start, __u64 size)
 {
 	vdev_regions->pfn = start >> PAGE_SHIFT;
-	vdev_regions->nr_pages = PAGE_ALIGN(len) >> PAGE_SHIFT;
+	vdev_regions->nr_pages = PAGE_ALIGN(size) >> PAGE_SHIFT;
 }
 EXPORT_SYMBOL(mdev_net_add_mmap);
 
@@ -745,7 +745,7 @@ EXPORT_SYMBOL(mdev_net_add_mmap);
  * some of them will additionally need sparse map information
  */
 void mdev_net_add_essential(struct mdev_net_regions *vdev_regions,
-			    __u64 offset, __u64 len, __u32 type, __u32 subtype,
+			    __u64 offset, __u64 size, __u32 type, __u32 subtype,
 			    phys_addr_t start)
 {
 	int cap_flags = VFIO_REGION_INFO_FLAG_READ |
@@ -753,9 +753,9 @@ void mdev_net_add_essential(struct mdev_net_regions *vdev_regions,
 		VFIO_REGION_INFO_FLAG_MMAP |
 		VFIO_REGION_INFO_FLAG_CAPS;
 
-	mdev_net_add_region(vdev_regions, offset, len, cap_flags);
+	mdev_net_add_region(vdev_regions, offset, size, cap_flags);
 	mdev_net_add_cap(vdev_regions, type, subtype);
-	mdev_net_add_mmap(vdev_regions, start, len);
+	mdev_net_add_mmap(vdev_regions, start, size);
 }
 EXPORT_SYMBOL(mdev_net_add_essential);
 
