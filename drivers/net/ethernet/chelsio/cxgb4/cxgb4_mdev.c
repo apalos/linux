@@ -51,9 +51,6 @@ static int cxgb4_init_vdev(struct mdev_device *mdev)
 	struct port_info *pi = netdev_priv(netdev);
 	struct mdev_net_regions *info;
 	struct pci_dev *pdev;
-	int mmio_flags = VFIO_REGION_INFO_FLAG_READ |
-		VFIO_REGION_INFO_FLAG_WRITE |
-		VFIO_REGION_INFO_FLAG_MMAP;
 	int cap_flags = VFIO_REGION_INFO_FLAG_READ |
 		VFIO_REGION_INFO_FLAG_WRITE |
 		VFIO_REGION_INFO_FLAG_MMAP |
@@ -62,16 +59,17 @@ static int cxgb4_init_vdev(struct mdev_device *mdev)
 	u64 len;
 	int i;
 	int cnt = 0;
+	int sparse_allocs = 0;
 
 	pdev = pi->adapter->pdev;
 
 	netmdev->vdev = kzalloc(sizeof(netmdev->vdev), GFP_KERNEL);
 	if (!netmdev->vdev)
-		return -ENOMEM;
+		goto alloc_fail;
 
 	netmdev->vdev->bus_regions = VFIO_PCI_NUM_REGIONS;
 	netmdev->vdev->extra_regions = VFIO_NET_MDEV_NUM_REGIONS;
-	netmdev->vdev->used_regions = 0;
+	netmdev->vdev->used_regions = pi->nqsets + 1;
 
 	netmdev->vdev->bus_flags = VFIO_DEVICE_FLAGS_PCI;
 	netmdev->vdev->num_irqs = 1;
@@ -79,19 +77,16 @@ static int cxgb4_init_vdev(struct mdev_device *mdev)
 	netmdev->vdev->vdev_regions =
 		kzalloc(netmdev->vdev->used_regions *
 			sizeof(*netmdev->vdev->vdev_regions), GFP_KERNEL);
-	if (!netmdev->vdev->vdev_regions) {
-		kfree(netmdev->vdev);
-		return -ENOMEM;
-	}
-	netmdev->vdev->vdev_regions->caps.sparse = kzalloc(pi->nqsets *
-			sizeof(*netmdev->vdev->vdev_regions->caps.sparse), GFP_KERNEL);
+	if (!netmdev->vdev->vdev_regions)
+		goto alloc_fail;
 
 	/* BAR MMIO */
 	info = &netmdev->vdev->vdev_regions[netmdev->vdev->used_regions++];
 	start = pci_resource_start(pdev, VFIO_PCI_BAR0_REGION_INDEX);
 	len = pci_resource_len(pdev, VFIO_PCI_BAR0_REGION_INDEX);
 	mdev_net_add_region(&info, VFIO_PCI_INDEX_TO_OFFSET(VFIO_PCI_BAR0_REGION_INDEX),
-			    len, mmio_flags);
+			    len, cap_flags);
+	mdev_net_add_cap(&info, VFIO_NET_MMIO, VFIO_NET_MDEV_BARS);
 	mdev_net_add_mmap(&info, start, len);
 
 	/* Rx + Rx free list */
@@ -112,8 +107,13 @@ static int cxgb4_init_vdev(struct mdev_device *mdev)
 		mdev_net_add_mmap(&info, start, len);
 		/* free list as sparse map */
 		start = virt_to_phys(fl->desc);
-		len = (fl->size * sizeof(*fl->desc)) + s->stat_len;
+		len = fl->size * sizeof(*fl->desc) + s->stat_len;
+
+		info->caps.sparse = kzalloc(sizeof(*info->caps.sparse), GFP_KERNEL);
+		if (!info->caps.sparse)
+			goto alloc_fail;
 		mdev_net_add_sparse(&info, 1, &start, &len);
+		sparse_allocs = i;
 	}
 
 	/* Tx */
@@ -134,6 +134,18 @@ static int cxgb4_init_vdev(struct mdev_device *mdev)
 	}
 
 	return 0;
+
+alloc_fail:
+	for (i = sparse_allocs; i > 0; i++) {
+		if ()
+			free()
+	}
+	if (netmdev->vdev->vdev_regions)
+		kfree(netmdev->vdev->vdev_regions);
+	if (netmdev->vdev)
+		kfree(netmdev->vdev);
+
+	return -ENOMEM;
 }
 
 void cxgb4_destroy_vdev(struct mdev_device *mdev)
@@ -156,19 +168,18 @@ static int cxgb4_transition_start(struct mdev_device *mdev)
 	struct adapter *adapter = pi->adapter;
 	int ret;
 
+	t4_intr_disable(adapter);
 	dev_hold(netdev);
 
 	ret = t4_update_port_info(pi);
 	if (ret < 0)
 		return ret;
 	/* XXX Check if we have to free queues to save resources */
-	t4_intr_disable(adapter);
 	t4_sge_stop(adapter);
 
 	ret = cxgb4_init_vdev(mdev);
 	if (ret)
 		return -EINVAL;
-
 
 	return 0;
 }
@@ -182,7 +193,9 @@ static int cxgb4_transition_back(struct mdev_device *mdev)
 	dev_put(netdev);
 	cxgb4_destroy_vdev(mdev);
 
-	/* XXX Check if we have to free queues to save resources */
+	/* Do we need this ??
+	 * enable_rx(adap);
+	 */
 	t4_sge_start(adapter);
 	t4_intr_enable(adapter);
 
