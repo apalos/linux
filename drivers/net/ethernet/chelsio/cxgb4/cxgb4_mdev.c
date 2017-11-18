@@ -50,16 +50,13 @@ static int cxgb4_init_vdev(struct mdev_device *mdev)
 	struct net_device *netdev = mdev_get_netdev(mdev);
 	struct port_info *pi = netdev_priv(netdev);
 	struct mdev_net_regions *info;
+	struct mdev_net_sparse *sparse = NULL;
 	struct pci_dev *pdev;
-	int cap_flags = VFIO_REGION_INFO_FLAG_READ |
-		VFIO_REGION_INFO_FLAG_WRITE |
-		VFIO_REGION_INFO_FLAG_MMAP |
-		VFIO_REGION_INFO_FLAG_CAPS;
-	phys_addr_t start;
-	u64 len;
 	int i;
 	int cnt = 0;
-	int sparse_allocs = 0;
+	int nr_areas = 1;
+	phys_addr_t start;
+	u64 size, idx;
 
 	pdev = pi->adapter->pdev;
 
@@ -83,63 +80,54 @@ static int cxgb4_init_vdev(struct mdev_device *mdev)
 	/* BAR MMIO */
 	info = &netmdev->vdev->vdev_regions[netmdev->vdev->used_regions++];
 	start = pci_resource_start(pdev, VFIO_PCI_BAR0_REGION_INDEX);
-	len = pci_resource_len(pdev, VFIO_PCI_BAR0_REGION_INDEX);
-	mdev_net_add_region(&info, VFIO_PCI_INDEX_TO_OFFSET(VFIO_PCI_BAR0_REGION_INDEX),
-			    len, cap_flags);
-	mdev_net_add_cap(&info, VFIO_NET_MMIO, VFIO_NET_MDEV_BARS);
-	mdev_net_add_mmap(&info, start, len);
+	size = pci_resource_len(pdev, VFIO_PCI_BAR0_REGION_INDEX);
+	idx = VFIO_PCI_INDEX_TO_OFFSET(VFIO_PCI_BAR0_REGION_INDEX);
+	mdev_net_add_essential(info, idx, size, VFIO_NET_MMIO, VFIO_NET_MDEV_BARS,
+			       start);
 
 	/* Rx + Rx free list */
+	sparse = kzalloc(pi->nqsets * nr_areas * sizeof(*info->caps.sparse),
+			 GFP_KERNEL);
 	for (i = 0; i < pi->nqsets; i++) {
 		struct sge_rspq *iq = &pi->adapter->sge.ethrxq[i].rspq;
 		struct sge_fl *fl = &pi->adapter->sge.ethrxq[i].fl;
 		struct sge *s = &pi->adapter->sge;
 
 		start = virt_to_phys(iq->desc);
-		len = iq->size * iq->iqe_len;
+		size = iq->size * iq->iqe_len;
 
 		info = &netmdev->vdev->vdev_regions[netmdev->vdev->used_regions++];
-		mdev_net_add_region(&info, VFIO_PCI_INDEX_TO_OFFSET(cnt +
-				    netmdev->vdev->bus_regions), len,
-				    cap_flags);
+		idx = VFIO_PCI_INDEX_TO_OFFSET(cnt + netmdev->vdev->bus_regions);
+		mdev_net_add_essential(info, idx, size, VFIO_NET_DESCRIPTORS,
+				       VFIO_NET_MDEV_RX, start);
 		cnt++;
-		mdev_net_add_cap(&info, VFIO_NET_DESCRIPTORS, VFIO_NET_MDEV_RX);
-		mdev_net_add_mmap(&info, start, len);
 		/* free list as sparse map */
 		start = virt_to_phys(fl->desc);
-		len = fl->size * sizeof(*fl->desc) + s->stat_len;
+		size = fl->size * sizeof(*fl->desc) + s->stat_len;
 
-		info->caps.sparse = kzalloc(sizeof(*info->caps.sparse), GFP_KERNEL);
-		if (!info->caps.sparse)
-			goto alloc_fail;
-		mdev_net_add_sparse(&info, 1, &start, &len);
-		sparse_allocs = i;
+		info->caps.sparse = &sparse[i];
+		mdev_net_add_sparse(info, nr_areas, &start, &size);
 	}
 
 	/* Tx */
 	for (i = 0; i < pi->nqsets; i++) {
-		/* Tx */
 		struct sge_txq *q = &pi->adapter->sge.ethtxq[i].q;
 		struct sge *s = &pi->adapter->sge;
 
 		info = &netmdev->vdev->vdev_regions[netmdev->vdev->used_regions++];
 		start = virt_to_phys(q->desc);
-		len = q->size * sizeof(*q->desc) + s->stat_len;
-		mdev_net_add_region(&info, VFIO_PCI_INDEX_TO_OFFSET(cnt +
-				    netmdev->vdev->bus_regions), len,
-				    cap_flags);
+		size = q->size * sizeof(*q->desc) + s->stat_len;
+		idx = VFIO_PCI_INDEX_TO_OFFSET(cnt + netmdev->vdev->bus_regions);
+		mdev_net_add_essential(info, idx, size, VFIO_NET_DESCRIPTORS,
+				       VFIO_NET_MDEV_TX, start);
 		cnt++;
-		mdev_net_add_cap(&info, VFIO_NET_DESCRIPTORS, VFIO_NET_MDEV_TX);
-		mdev_net_add_mmap(&info, start, len);
 	}
 
 	return 0;
 
 alloc_fail:
-	for (i = sparse_allocs; i > 0; i++) {
-		if ()
-			free()
-	}
+	if (sparse)
+		kfree(sparse);
 	if (netmdev->vdev->vdev_regions)
 		kfree(netmdev->vdev->vdev_regions);
 	if (netmdev->vdev)
