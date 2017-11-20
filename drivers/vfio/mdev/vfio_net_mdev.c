@@ -381,41 +381,39 @@ static int netmdev_vfio_unmmap_dma(struct mdev_device *mdev,
 }
 
 static struct
-vfio_region_info_cap_sparse_mmap *netmdev_fill_sparse(struct mdev_net_regions *net_regions,
-						      int nr_areas)
+vfio_region_info_cap_sparse_mmap *netmdev_fill_sparse(struct mdev_net_region *region)
 {
+	struct vfio_region_info_cap_sparse_mmap *sparse;
 	int i;
-	struct vfio_region_info_cap_sparse_mmap *sparse = NULL;
-	u64 size, offset;
 
-	size = sizeof(*sparse) + (nr_areas * sizeof(*sparse->areas));
-	sparse = kzalloc(size, GFP_KERNEL);
+	sparse = kzalloc(sizeof(*sparse) +
+			 (region->caps.nr_areas * sizeof(*sparse->areas)),
+			 GFP_KERNEL);
 	if (!sparse)
 		return NULL;
 
-	for (i = 0; i < nr_areas; i++) {
-		offset = net_regions->caps.sparse[i].offset;
-		size = net_regions->caps.sparse[i].size;
-		sparse->areas[i].offset = offset;
-		sparse->areas[i].size = size;
+	for (i = 0; i < region->caps.nr_areas; i++) {
+		sparse->areas[i].offset = region->caps.sparse[i].offset;
+		sparse->areas[i].size =
+		    region->caps.sparse[i].nr_pages << PAGE_SHIFT;
 	}
-	sparse->nr_areas = nr_areas;
+	sparse->nr_areas = region->caps.nr_areas;
 
 	return sparse;
 }
 
-struct mdev_net_regions *region_from_index(struct mdev_device *mdev, int index)
+struct mdev_net_region *region_from_index(struct mdev_device *mdev, int index)
 {
 	struct netmdev *netmdev = mdev_get_drvdata(mdev);
 	int i;
 
-	if (!netmdev->vdev || !netmdev->vdev->vdev_regions)
+	if (!netmdev->vdev || !netmdev->vdev->regions)
 		return NULL;
 
 	for (i = 0; i < netmdev->vdev->used_regions; i++) {
-		if (netmdev->vdev->vdev_regions[i].offset ==
+		if (netmdev->vdev->regions[i].offset ==
 			VFIO_PCI_INDEX_TO_OFFSET(index))
-				return &netmdev->vdev->vdev_regions[i];
+				return &netmdev->vdev->regions[i];
 	}
 
 	return NULL;
@@ -437,7 +435,7 @@ static long netmdev_dev_ioctl(struct mdev_device *mdev, unsigned int cmd,
 	struct vfio_iommu_type1_dma_unmap dma_unmap;
 	int ret = 0;
 	int max_regions = 0;
-	struct mdev_net_regions *net_regions;
+	struct mdev_net_region *region;
 
 	if (!mdev)
 		return -EINVAL;
@@ -483,16 +481,17 @@ static long netmdev_dev_ioctl(struct mdev_device *mdev, unsigned int cmd,
 		if(reg_info.index > max_regions)
 			return -EINVAL;
 
-		net_regions = region_from_index(mdev, reg_info.index);
-		if (!net_regions)
+		region = region_from_index(mdev, reg_info.index);
+		if (!region)
 			return -EINVAL;
-		reg_info.size = net_regions->size;
-		reg_info.offset = net_regions->offset;
-		reg_info.flags = net_regions->flags;
+
+		reg_info.size = region->nr_pages << PAGE_SHIFT;
+		reg_info.offset = region->offset;
+		reg_info.flags = region->flags;
 
 		if (reg_info.flags & VFIO_REGION_INFO_FLAG_CAPS) {
-			cap_type.type = net_regions->caps.type;
-			cap_type.subtype = net_regions->caps.subtype;
+			cap_type.type = region->caps.type;
+			cap_type.subtype = region->caps.subtype;
 
 			ret = vfio_info_add_capability(&caps,
 					VFIO_REGION_INFO_CAP_TYPE,
@@ -501,9 +500,8 @@ static long netmdev_dev_ioctl(struct mdev_device *mdev, unsigned int cmd,
 				return ret;
 		}
 
-		if (net_regions->caps.nr_areas) {
-			sparse = netmdev_fill_sparse(net_regions,
-						     net_regions->caps.nr_areas);
+		if (region->caps.nr_areas) {
+			sparse = netmdev_fill_sparse(region);
 			if (sparse) {
 				ret = vfio_info_add_capability(&caps,
 					VFIO_REGION_INFO_CAP_SPARSE_MMAP, sparse);
@@ -588,7 +586,8 @@ static int netmdev_dev_mmap(struct mdev_device *mdev, struct vm_area_struct *vma
 	u64 req_len, pgoff, req_start;
 	unsigned int index;
 	unsigned long pfn, nr_pages;
-	struct mdev_net_regions *net_regions;
+	struct mdev_net_region *region;
+	u64 offset = vma->vm_pgoff << PAGE_SHIFT;
 	u32 max;
 
 	/* userland wants to access ring descrptors that was pre-allocated
@@ -605,15 +604,31 @@ static int netmdev_dev_mmap(struct mdev_device *mdev, struct vm_area_struct *vma
 
 	max = netmdev->vdev->bus_regions + netmdev->vdev->extra_regions;
 
-	index = vma->vm_pgoff >> (VFIO_PCI_OFFSET_SHIFT - PAGE_SHIFT);
-	if (index <= max) {
-		net_regions = region_from_index(mdev, index);
-		if (!net_regions)
-			return -EINVAL;
-		pfn = net_regions->pfn;
-		nr_pages = net_regions->nr_pages;
-	} else {
+	index = VFIO_PCI_OFFSET_TO_INDEX(offset);
+	if (index > max)
 		return -EINVAL;
+
+	region = region_from_index(mdev, index);
+	if (!region)
+		return -EINVAL;
+
+	pfn = nr_pages = 0;
+	if (!region->caps.nr_areas) {
+		pfn = region->pfn;
+		nr_pages = region->nr_pages;
+	} else {
+		int i;
+
+		/* Lookup relevant area => (pfn, nr_pages) */
+		for (i = 0; i < region->caps.nr_areas; i++) {
+			struct mdev_net_sparse *area = &region->caps.sparse[i];
+
+			if (area->offset == offset) {
+				pfn = area->pfn;
+				nr_pages = area->nr_pages;
+			}
+		}
+
 	}
 
 	req_len = vma->vm_end - vma->vm_start;
@@ -702,60 +717,53 @@ int netmdev_register_device(struct device *dev, struct netmdev_driver_ops *ops)
 }
 EXPORT_SYMBOL(netmdev_register_device);
 
-void mdev_net_add_region(struct mdev_net_regions *vdev_regions,
-			 __u64 offset, __u64 size, __u32 flags)
+int mdev_net_add_sparse(struct mdev_net_region *region, __u64 offset,
+                        unsigned long pfn, unsigned long nr_pages)
 {
-	vdev_regions->size = PAGE_ALIGN(size);
-	vdev_regions->offset = offset;
-	vdev_regions->flags = flags;
-}
-EXPORT_SYMBOL(mdev_net_add_region);
+	struct mdev_net_sparse *sparse;
 
-void mdev_net_add_cap(struct mdev_net_regions *vdev_regions,
-		      __u32 type, __u32 subtype)
-{
-	vdev_regions->caps.type = type;
-	vdev_regions->caps.subtype = subtype;
-}
-EXPORT_SYMBOL(mdev_net_add_cap);
+	sparse =
+	    kzalloc((region->caps.nr_areas + 1) * sizeof(*sparse), GFP_KERNEL);
+	if (!sparse)
+		return -ENOMEM;
 
-void mdev_net_add_sparse(struct mdev_net_regions *vdev_regions,
-			 __u32 nr_areas, __u64 offset[], __u64 size[])
-{
-	int i;
+	memcpy(sparse, region->caps.sparse,
+	       region->caps.nr_areas * sizeof(*sparse));
+	kfree(region->caps.sparse);
 
-	vdev_regions->caps.nr_areas = nr_areas;
-	for (i = 0; i < nr_areas; i++) {
-		vdev_regions->caps.sparse[i].offset = offset[i];
-		vdev_regions->caps.sparse[i].size = PAGE_ALIGN(size[i]);
-	}
+	region->caps.sparse = sparse;
+
+	sparse += region->caps.nr_areas;
+	sparse->offset = offset;
+	sparse->pfn = pfn;
+	sparse->nr_pages = nr_pages;
+
+	region->caps.nr_areas++;
+
+	return 0;
 }
 EXPORT_SYMBOL(mdev_net_add_sparse);
-
-void mdev_net_add_mmap(struct mdev_net_regions *vdev_regions,
-		       phys_addr_t start, __u64 size)
-{
-	vdev_regions->pfn = start >> PAGE_SHIFT;
-	vdev_regions->nr_pages = PAGE_ALIGN(size) >> PAGE_SHIFT;
-}
-EXPORT_SYMBOL(mdev_net_add_mmap);
 
 /*
  * All devices will need region/capabilities and mmap properties
  * some of them will additionally need sparse map information
  */
-void mdev_net_add_essential(struct mdev_net_regions *vdev_regions,
-			    __u64 offset, __u64 size, __u32 type, __u32 subtype,
-			    phys_addr_t start)
+void mdev_net_add_essential(struct mdev_net_region *region, __u32 type,
+			    __u32 subtype, __u64 offset, unsigned long pfn,
+			    unsigned long nr_pages)
 {
-	int cap_flags = VFIO_REGION_INFO_FLAG_READ |
-		VFIO_REGION_INFO_FLAG_WRITE |
-		VFIO_REGION_INFO_FLAG_MMAP |
-		VFIO_REGION_INFO_FLAG_CAPS;
+	const int flags =
+	    VFIO_REGION_INFO_FLAG_READ | VFIO_REGION_INFO_FLAG_WRITE |
+	    VFIO_REGION_INFO_FLAG_MMAP | VFIO_REGION_INFO_FLAG_CAPS;
 
-	mdev_net_add_region(vdev_regions, offset, size, cap_flags);
-	mdev_net_add_cap(vdev_regions, type, subtype);
-	mdev_net_add_mmap(vdev_regions, start, size);
+	region->caps.type = type;
+	region->caps.subtype = subtype;
+	region->flags = flags;
+	region->offset = offset;
+	region->pfn = pfn;
+	region->nr_pages = nr_pages;
+	region->caps.nr_areas = 0;
+	region->caps.sparse = NULL;
 }
 EXPORT_SYMBOL(mdev_net_add_essential);
 
