@@ -25,7 +25,8 @@ struct device;
 
 struct mdev_net_sparse {
 	__u64 offset;
-	__u64 size;
+	unsigned long pfn;
+	unsigned long nr_pages;
 };
 
 struct mdev_net_caps {
@@ -35,9 +36,8 @@ struct mdev_net_caps {
 	struct mdev_net_sparse *sparse;
 };
 
-struct mdev_net_regions {
+struct mdev_net_region {
 	__u32	flags;
-	__u64	size;		/* Region size (bytes) */
 	__u64	offset;		/* Region offset */
 	unsigned long pfn;
 	unsigned long nr_pages;
@@ -48,11 +48,9 @@ struct mdev_net_vdev {
 	__u8 bus_regions;	/* Bus specific */
 	__u8 extra_regions;	/* extra regions */
 	__u8 used_regions;	/* Used regions/caps */
-	__u16 num_rx;		/* Rx queues */
-	__u16 num_tx;		/* Tx queues */
 	__u32 bus_flags;	/* vfio_device_info flags */
 	__u16 num_irqs;		/* Max IRQ index + 1 */
-	struct mdev_net_regions *vdev_regions;
+	struct mdev_net_region *regions;
 };
 
 /**
@@ -62,8 +60,7 @@ struct mdev_net_vdev {
  * register the device to mdev module
  * @transition_start: called on mediated device init
  * @transition_complete: called when mediated device is ready
- * @transition_back: called when mediated device control back to kernel
- * @get_region_info: get region information
+ * @reset_dev: reset the device
  **/
 
 struct netmdev_driver_ops {
@@ -99,18 +96,10 @@ struct netmdev {
 int netmdev_register_device(struct device* dev, struct netmdev_driver_ops *ops);
 int netmdev_unregister_device(struct device* dev);
 struct net_device *mdev_get_netdev(struct mdev_device *mdev);
-void mdev_net_add_cap(struct mdev_net_regions *vdev_regions,
-		      __u32 type, __u32 subtype);
-void mdev_net_add_region(struct mdev_net_regions *vdev_regions,
-			 __u64 offset, __u64 size, __u32 flags);
-void mdev_net_add_mmap(struct mdev_net_regions *vdev_regions,
-		       phys_addr_t start, u64 len);
-
-void mdev_net_add_sparse(struct mdev_net_regions *vdev_regions,
-			 __u32 nr_areas, __u64 offset[], __u64 size[]);
-
-void mdev_net_add_essential(struct mdev_net_regions *vdev_regions,
-			    __u64 offset, __u64 len, __u32 type, __u32 subtype,
-			    phys_addr_t start);
+int mdev_net_add_sparse(struct mdev_net_region *region, __u64 offset,
+			unsigned long pfn, unsigned long nr_pages);
+void mdev_net_add_essential(struct mdev_net_region *region, __u32 type,
+			    __u32 subtype, __u64 offset, unsigned long pfn,
+			    unsigned long nr_pages);
 
 #endif /* MDEV_H */

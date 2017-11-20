@@ -32,10 +32,10 @@ static int e1000e_init_vdev(struct mdev_device *mdev)
 	struct netmdev *netmdev = mdev_get_drvdata(mdev);
 	struct net_device *netdev = mdev_get_netdev(mdev);
 	struct e1000_adapter *adapter = netdev_priv(netdev);
-	struct mdev_net_regions *info;
+	struct mdev_net_region *region;
 	struct pci_dev *pdev;
 	phys_addr_t start;
-	u64 size, idx;
+	u64 size, offset;
 
 	pdev = adapter->pdev;
 
@@ -49,39 +49,39 @@ static int e1000e_init_vdev(struct mdev_device *mdev)
 	netmdev->vdev->bus_flags = VFIO_DEVICE_FLAGS_PCI;
 	netmdev->vdev->num_irqs = 1;
 
-	netmdev->vdev->vdev_regions =
-		kzalloc(E1000E_MDEV_USED_REGIONS *
-			sizeof(*netmdev->vdev->vdev_regions), GFP_KERNEL);
-	if (!netmdev->vdev->vdev_regions) {
+	netmdev->vdev->regions =
+	    kzalloc(E1000E_MDEV_USED_REGIONS *
+		    sizeof(*netmdev->vdev->regions), GFP_KERNEL);
+	if (!netmdev->vdev->regions) {
 		kfree(netmdev->vdev);
 		return -ENOMEM;
 	}
 
 	/* BAR MMIO */
-	info = &netmdev->vdev->vdev_regions[netmdev->vdev->used_regions++];
+	region = &netmdev->vdev->regions[netmdev->vdev->used_regions++];
 	start = pci_resource_start(pdev, VFIO_PCI_BAR0_REGION_INDEX);
 	size = pci_resource_len(pdev, VFIO_PCI_BAR0_REGION_INDEX);
-	idx = VFIO_PCI_INDEX_TO_OFFSET(VFIO_PCI_BAR0_REGION_INDEX);
-	mdev_net_add_essential(info, idx, size, VFIO_NET_MMIO, VFIO_NET_MDEV_BARS,
-			       start);
+	offset = VFIO_PCI_INDEX_TO_OFFSET(VFIO_PCI_BAR0_REGION_INDEX);
+	mdev_net_add_essential(region, VFIO_NET_MMIO, VFIO_NET_MDEV_BARS,
+			       offset, start >> PAGE_SHIFT, size >> PAGE_SHIFT);
 
 	/* Rx */
-	info = &netmdev->vdev->vdev_regions[netmdev->vdev->used_regions++];
+	region = &netmdev->vdev->regions[netmdev->vdev->used_regions++];
 	start = virt_to_phys(adapter->rx_ring[0].desc);
 	size = adapter->rx_ring[0].size;
-	idx = VFIO_PCI_INDEX_TO_OFFSET(VFIO_NET_MDEV_RX_REGION_INDEX +
-			netmdev->vdev->bus_regions);
-	mdev_net_add_essential(info, idx, size, VFIO_NET_DESCRIPTORS,
-			       VFIO_NET_MDEV_RX, start);
+	offset = VFIO_PCI_INDEX_TO_OFFSET(VFIO_NET_MDEV_RX_REGION_INDEX +
+					  netmdev->vdev->bus_regions);
+	mdev_net_add_essential(region, VFIO_NET_DESCRIPTORS, VFIO_NET_MDEV_RX,
+			       offset, start >> PAGE_SHIFT, size >> PAGE_SHIFT);
 
 	/* Tx */
-	info = &netmdev->vdev->vdev_regions[netmdev->vdev->used_regions++];
+	region = &netmdev->vdev->regions[netmdev->vdev->used_regions++];
 	start = virt_to_phys(adapter->tx_ring[0].desc);
 	size = adapter->tx_ring[0].size;
-	idx = VFIO_PCI_INDEX_TO_OFFSET(VFIO_NET_MDEV_TX_REGION_INDEX +
-			netmdev->vdev->bus_regions);
-	mdev_net_add_essential(info, idx, size, VFIO_NET_DESCRIPTORS,
-			       VFIO_NET_MDEV_TX, start);
+	offset = VFIO_PCI_INDEX_TO_OFFSET(VFIO_NET_MDEV_TX_REGION_INDEX +
+					  netmdev->vdev->bus_regions);
+	mdev_net_add_essential(region, VFIO_NET_DESCRIPTORS, VFIO_NET_MDEV_TX,
+			       offset, start >> PAGE_SHIFT, size >> PAGE_SHIFT);
 
 	BUG_ON(netmdev->vdev->used_regions != E1000E_MDEV_USED_REGIONS);
 
@@ -93,8 +93,8 @@ void e1000e_destroy_vdev(struct mdev_device *mdev)
 	struct netmdev *netmdev = mdev_get_drvdata(mdev);
 
 	if (netmdev->vdev) {
-		if (netmdev->vdev->vdev_regions)
-			kfree(netmdev->vdev->vdev_regions);
+		if (netmdev->vdev->regions)
+			kfree(netmdev->vdev->regions);
 		kfree(netmdev->vdev);
 	}
 }

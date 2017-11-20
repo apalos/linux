@@ -43,20 +43,19 @@
 #include "cxgb4.h"
 
 struct net_device *mdev_get_netdev(struct mdev_device *mdev);
+static void cxgb4_destroy_vdev(struct mdev_device *mdev);
 
 static int cxgb4_init_vdev(struct mdev_device *mdev)
 {
 	struct netmdev *netmdev = mdev_get_drvdata(mdev);
 	struct net_device *netdev = mdev_get_netdev(mdev);
 	struct port_info *pi = netdev_priv(netdev);
-	struct mdev_net_regions *info;
-	struct mdev_net_sparse *sparse = NULL;
+	struct mdev_net_region *region;
 	struct pci_dev *pdev;
 	int i;
 	int cnt = 0;
-	int nr_areas = 1;
 	phys_addr_t start;
-	u64 size, idx;
+	u64 size, offset;
 
 	pdev = pi->adapter->pdev;
 
@@ -71,42 +70,43 @@ static int cxgb4_init_vdev(struct mdev_device *mdev)
 	netmdev->vdev->bus_flags = VFIO_DEVICE_FLAGS_PCI;
 	netmdev->vdev->num_irqs = 1;
 
-	netmdev->vdev->vdev_regions =
+	netmdev->vdev->regions =
 		kzalloc(netmdev->vdev->used_regions *
-			sizeof(*netmdev->vdev->vdev_regions), GFP_KERNEL);
-	if (!netmdev->vdev->vdev_regions)
+			sizeof(*netmdev->vdev->regions), GFP_KERNEL);
+	if (!netmdev->vdev->regions)
 		goto alloc_fail;
 
 	/* BAR MMIO */
-	info = &netmdev->vdev->vdev_regions[netmdev->vdev->used_regions++];
+	region = &netmdev->vdev->regions[netmdev->vdev->used_regions++];
 	start = pci_resource_start(pdev, VFIO_PCI_BAR0_REGION_INDEX);
 	size = pci_resource_len(pdev, VFIO_PCI_BAR0_REGION_INDEX);
-	idx = VFIO_PCI_INDEX_TO_OFFSET(VFIO_PCI_BAR0_REGION_INDEX);
-	mdev_net_add_essential(info, idx, size, VFIO_NET_MMIO, VFIO_NET_MDEV_BARS,
-			       start);
+	offset = VFIO_PCI_INDEX_TO_OFFSET(VFIO_PCI_BAR0_REGION_INDEX);
+	mdev_net_add_essential(region, VFIO_NET_MMIO, VFIO_NET_MDEV_BARS,
+			       offset, start >> PAGE_SHIFT, size >> PAGE_SHIFT);
 
 	/* Rx + Rx free list */
-	sparse = kzalloc(pi->nqsets * nr_areas * sizeof(*info->caps.sparse),
-			 GFP_KERNEL);
 	for (i = 0; i < pi->nqsets; i++) {
 		struct sge_rspq *iq = &pi->adapter->sge.ethrxq[i].rspq;
 		struct sge_fl *fl = &pi->adapter->sge.ethrxq[i].fl;
 		struct sge *s = &pi->adapter->sge;
 
-		start = virt_to_phys(iq->desc);
-		size = iq->size * iq->iqe_len;
-
-		info = &netmdev->vdev->vdev_regions[netmdev->vdev->used_regions++];
-		idx = VFIO_PCI_INDEX_TO_OFFSET(cnt + netmdev->vdev->bus_regions);
-		mdev_net_add_essential(info, idx, size, VFIO_NET_DESCRIPTORS,
-				       VFIO_NET_MDEV_RX, start);
+		region = &netmdev->vdev->regions[netmdev->vdev->used_regions++];
+		offset = VFIO_PCI_INDEX_TO_OFFSET(cnt + netmdev->vdev->bus_regions);
+		mdev_net_add_essential(region, VFIO_NET_DESCRIPTORS,
+				       VFIO_NET_MDEV_RX, offset, 0, 0);
 		cnt++;
-		/* free list as sparse map */
-		start = virt_to_phys(fl->desc);
-		size = fl->size * sizeof(*fl->desc) + s->stat_len;
 
-		info->caps.sparse = &sparse[i];
-		mdev_net_add_sparse(info, nr_areas, &start, &size);
+		start = virt_to_phys(iq->desc);
+		size = PAGE_ALIGN(iq->size * iq->iqe_len);
+		mdev_net_add_sparse(region, offset, start >> PAGE_SHIFT,
+				    size >> PAGE_SHIFT);
+
+		offset += size + PAGE_SIZE;
+
+		start = virt_to_phys(fl->desc);
+		size = PAGE_ALIGN(fl->size * sizeof(*fl->desc) + s->stat_len);
+		mdev_net_add_sparse(region, offset, start >> PAGE_SHIFT,
+				    size >> PAGE_SHIFT);
 	}
 
 	/* Tx */
@@ -114,37 +114,41 @@ static int cxgb4_init_vdev(struct mdev_device *mdev)
 		struct sge_txq *q = &pi->adapter->sge.ethtxq[i].q;
 		struct sge *s = &pi->adapter->sge;
 
-		info = &netmdev->vdev->vdev_regions[netmdev->vdev->used_regions++];
+		region = &netmdev->vdev->regions[netmdev->vdev->used_regions++];
 		start = virt_to_phys(q->desc);
 		size = q->size * sizeof(*q->desc) + s->stat_len;
-		idx = VFIO_PCI_INDEX_TO_OFFSET(cnt + netmdev->vdev->bus_regions);
-		mdev_net_add_essential(info, idx, size, VFIO_NET_DESCRIPTORS,
-				       VFIO_NET_MDEV_TX, start);
+		offset = VFIO_PCI_INDEX_TO_OFFSET(cnt + netmdev->vdev->bus_regions);
+		mdev_net_add_essential(region, VFIO_NET_DESCRIPTORS,
+				       VFIO_NET_MDEV_TX, offset,
+				       start >> PAGE_SHIFT, size >> PAGE_SHIFT);
 		cnt++;
 	}
 
 	return 0;
 
 alloc_fail:
-	if (sparse)
-		kfree(sparse);
-	if (netmdev->vdev->vdev_regions)
-		kfree(netmdev->vdev->vdev_regions);
-	if (netmdev->vdev)
-		kfree(netmdev->vdev);
+	cxgb4_destroy_vdev(mdev);
 
 	return -ENOMEM;
 }
 
-void cxgb4_destroy_vdev(struct mdev_device *mdev)
+static void cxgb4_destroy_vdev(struct mdev_device *mdev)
 {
 	struct netmdev *netmdev = mdev_get_drvdata(mdev);
 
 	if (netmdev->vdev) {
-		if (netmdev->vdev->vdev_regions->caps.sparse)
-			kfree(netmdev->vdev->vdev_regions->caps.sparse);
-		if (netmdev->vdev->vdev_regions)
-			kfree(netmdev->vdev->vdev_regions);
+		int i;
+
+		for (i = 0; i < netmdev->vdev->used_regions; i++) {
+			struct mdev_net_region *region = &netmdev->vdev->regions[i];
+
+			if (region->caps.sparse)
+				kfree(region->caps.sparse);
+		}
+
+		if (netmdev->vdev->regions)
+			kfree(netmdev->vdev->regions);
+
 		kfree(netmdev->vdev);
 	}
 }
