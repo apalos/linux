@@ -65,8 +65,8 @@ static int cxgb4_init_vdev(struct mdev_device *mdev)
 		goto alloc_fail;
 
 	netmdev->vdev->bus_regions = VFIO_PCI_NUM_REGIONS;
-	netmdev->vdev->extra_regions = VFIO_NET_MDEV_NUM_REGIONS;
-	netmdev->vdev->used_regions = pi->nqsets + 1;
+	netmdev->vdev->extra_regions = 2 * pi->nqsets;
+	netmdev->vdev->used_regions = netmdev->vdev->extra_regions + 1;
 
 	netmdev->vdev->bus_flags = VFIO_DEVICE_FLAGS_PCI;
 	netmdev->vdev->num_irqs = 1;
