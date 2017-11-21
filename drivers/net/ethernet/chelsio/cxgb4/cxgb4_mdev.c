@@ -92,12 +92,14 @@ static int cxgb4_init_vdev(struct mdev_device *mdev)
 
 		region = &netmdev->vdev->regions[netmdev->vdev->used_regions++];
 		offset = VFIO_PCI_INDEX_TO_OFFSET(cnt + netmdev->vdev->bus_regions);
+		mdev_net_add_essential(region, VFIO_NET_DESCRIPTORS,
+				       VFIO_NET_MDEV_RX, offset, 0, 0);
+		cnt++;
+
 		start = virt_to_phys(iq->desc);
 		size = PAGE_ALIGN(iq->size * iq->iqe_len);
-		mdev_net_add_essential(region, VFIO_NET_DESCRIPTORS,
-				       VFIO_NET_MDEV_RX, offset,
-				       start >> PAGE_SHIFT, size >> PAGE_SHIFT);
-		cnt++;
+		mdev_net_add_sparse(region, offset, start >> PAGE_SHIFT,
+				    size >> PAGE_SHIFT);
 
 		offset += size + PAGE_SIZE;
 
@@ -114,7 +116,7 @@ static int cxgb4_init_vdev(struct mdev_device *mdev)
 
 		region = &netmdev->vdev->regions[netmdev->vdev->used_regions++];
 		start = virt_to_phys(q->desc);
-		size = PAGE_ALIGN(q->size * sizeof(*q->desc) + s->stat_len);
+		size = q->size * sizeof(*q->desc) + s->stat_len;
 		offset = VFIO_PCI_INDEX_TO_OFFSET(cnt + netmdev->vdev->bus_regions);
 		mdev_net_add_essential(region, VFIO_NET_DESCRIPTORS,
 				       VFIO_NET_MDEV_TX, offset,
