@@ -179,7 +179,7 @@ static struct dentry *cxgb4_debugfs_root;
 LIST_HEAD(adapter_list);
 DEFINE_MUTEX(uld_mutex);
 
-#ifdef CONFIG_VFIO_MDEV_NET_DEVICE
+#if IS_ENABLED(CONFIG_VFIO_MDEV_NET_DEVICE)
 void cxgb4_register_netmdev(struct device *dev);
 void cxgb4_unregister_netmdev(struct device *dev);
 #endif
@@ -5410,7 +5410,7 @@ static int init_one(struct pci_dev *pdev, const struct pci_device_id *ent)
 	if (!is_t4(adapter->params.chip))
 		cxgb4_ptp_init(adapter);
 
-#ifdef CONFIG_VFIO_MDEV_NET_DEVICE
+#if IS_ENABLED(CONFIG_VFIO_MDEV_NET_DEVICE)
 	cxgb4_register_netmdev(&pdev->dev);
 #endif
 	print_adapter_info(adapter);
@@ -5498,7 +5498,7 @@ static void remove_one(struct pci_dev *pdev)
 {
 	struct adapter *adapter = pci_get_drvdata(pdev);
 
-#ifdef CONFIG_VFIO_MDEV_NET_DEVICE
+#if IS_ENABLED(CONFIG_VFIO_MDEV_NET_DEVICE)
 	cxgb4_register_netmdev(&pdev->dev);
 #endif
 	if (!adapter) {
