@@ -53,7 +53,8 @@ static int cxgb4_init_vdev(struct mdev_device *mdev)
 	struct mdev_net_region *region;
 	struct pci_dev *pdev;
 	int i;
-	int cnt = 0;
+	int offset_cnt = 0;
+	int alloc_regions = 0;
 	phys_addr_t start;
 	u64 size, offset;
 
@@ -65,13 +66,14 @@ static int cxgb4_init_vdev(struct mdev_device *mdev)
 
 	netmdev->vdev->bus_regions = VFIO_PCI_NUM_REGIONS;
 	netmdev->vdev->extra_regions = 2 * pi->nqsets;
-	netmdev->vdev->used_regions = netmdev->vdev->extra_regions + 1;
+	alloc_regions = netmdev->vdev->extra_regions + 1;
+	netmdev->vdev->used_regions = 0;
 
 	netmdev->vdev->bus_flags = VFIO_DEVICE_FLAGS_PCI;
 	netmdev->vdev->num_irqs = 1;
 
 	netmdev->vdev->regions =
-		kzalloc(netmdev->vdev->used_regions *
+		kzalloc(alloc_regions *
 			sizeof(*netmdev->vdev->regions), GFP_KERNEL);
 	if (!netmdev->vdev->regions)
 		goto alloc_fail;
@@ -91,10 +93,10 @@ static int cxgb4_init_vdev(struct mdev_device *mdev)
 		struct sge *s = &pi->adapter->sge;
 
 		region = &netmdev->vdev->regions[netmdev->vdev->used_regions++];
-		offset = VFIO_PCI_INDEX_TO_OFFSET(cnt + netmdev->vdev->bus_regions);
+		offset = VFIO_PCI_INDEX_TO_OFFSET(offset_cnt + netmdev->vdev->bus_regions);
 		mdev_net_add_essential(region, VFIO_NET_DESCRIPTORS,
 				       VFIO_NET_MDEV_RX, offset, 0, 0);
-		cnt++;
+		offset_cnt++;
 
 		start = virt_to_phys(iq->desc);
 		size = PAGE_ALIGN(iq->size * iq->iqe_len);
@@ -116,12 +118,12 @@ static int cxgb4_init_vdev(struct mdev_device *mdev)
 
 		region = &netmdev->vdev->regions[netmdev->vdev->used_regions++];
 		start = virt_to_phys(q->desc);
-		size = q->size * sizeof(*q->desc) + s->stat_len;
-		offset = VFIO_PCI_INDEX_TO_OFFSET(cnt + netmdev->vdev->bus_regions);
+		size = PAGE_ALIGN(q->size * sizeof(*q->desc) + s->stat_len);
+		offset = VFIO_PCI_INDEX_TO_OFFSET(offset_cnt + netmdev->vdev->bus_regions);
 		mdev_net_add_essential(region, VFIO_NET_DESCRIPTORS,
 				       VFIO_NET_MDEV_TX, offset,
 				       start >> PAGE_SHIFT, size >> PAGE_SHIFT);
-		cnt++;
+		offset_cnt++;
 	}
 
 	return 0;
