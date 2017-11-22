@@ -32,6 +32,7 @@
 /* Local includes */
 #include "i40e.h"
 #include "i40e_diag.h"
+#include "i40e_mdev.h"
 #include <net/udp_tunnel.h>
 /* All i40e tracepoints are defined by the include below, which
  * must be included exactly once across the whole kernel with
@@ -10063,6 +10064,7 @@ int i40e_vsi_release(struct i40e_vsi *vsi)
 	uplink_seid = vsi->uplink_seid;
 	if (vsi->type != I40E_VSI_SRIOV) {
 		if (vsi->netdev_registered) {
+			i40e_unregister_netmdev(&pf->pdev->dev);
 			vsi->netdev_registered = false;
 			if (vsi->netdev) {
 				/* results in a call to i40e_close() */
@@ -10249,6 +10251,7 @@ static struct i40e_vsi *i40e_vsi_reinit_setup(struct i40e_vsi *vsi)
 err_rings:
 	i40e_vsi_free_q_vectors(vsi);
 	if (vsi->netdev_registered) {
+		i40e_unregister_netmdev(&pf->pdev->dev);
 		vsi->netdev_registered = false;
 		unregister_netdev(vsi->netdev);
 		free_netdev(vsi->netdev);
@@ -10405,6 +10408,7 @@ struct i40e_vsi *i40e_vsi_setup(struct i40e_pf *pf, u8 type,
 		ret = register_netdev(vsi->netdev);
 		if (ret)
 			goto err_netdev;
+		i40e_register_netmdev(&pf->pdev->dev);
 		vsi->netdev_registered = true;
 		netif_carrier_off(vsi->netdev);
 #ifdef CONFIG_I40E_DCB
@@ -10444,6 +10448,7 @@ err_rings:
 	i40e_vsi_free_q_vectors(vsi);
 err_msix:
 	if (vsi->netdev_registered) {
+		i40e_unregister_netmdev(&pf->pdev->dev);
 		vsi->netdev_registered = false;
 		unregister_netdev(vsi->netdev);
 		free_netdev(vsi->netdev);
