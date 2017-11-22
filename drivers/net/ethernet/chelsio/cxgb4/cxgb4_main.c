@@ -5499,7 +5499,7 @@ static void remove_one(struct pci_dev *pdev)
 	struct adapter *adapter = pci_get_drvdata(pdev);
 
 #if IS_ENABLED(CONFIG_VFIO_MDEV_NET_DEVICE)
-	cxgb4_register_netmdev(&pdev->dev);
+	cxgb4_unregister_netmdev(&pdev->dev);
 #endif
 	if (!adapter) {
 		pci_release_regions(pdev);
