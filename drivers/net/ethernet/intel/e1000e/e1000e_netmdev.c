@@ -109,19 +109,19 @@ static int e1000e_transition_start(struct mdev_device *mdev)
 {
 	struct net_device *netdev = mdev_get_netdev(mdev);
 	struct e1000_adapter *adapter = netdev_priv(netdev);
-	int ret;
 
 	dev_hold(netdev);
+
+	if (e1000e_init_vdev(mdev)) {
+		dev_put(netdev);
+		return -EINVAL;
+	}
 
 	adapter->irq_mask =
 	    E1000_IMS_RXT0 | E1000_IMS_TXDW |
 	    E1000_IMS_RXDMT0 | E1000_IMS_RXSEQ;
 
 	netif_carrier_off(netdev);
-
-	ret = e1000e_init_vdev(mdev);
-	if (ret)
-		return -EINVAL;
 
 	if (netif_running(netdev))
 		e1000e_reinit_locked(adapter);
@@ -143,8 +143,9 @@ static int e1000e_transition_back(struct mdev_device *mdev)
 	else
 		e1000e_reset(adapter);
 
-	dev_put(adapter->netdev);
 	e1000e_destroy_vdev(mdev);
+
+	dev_put(adapter->netdev);
 
 	return 0;
 }

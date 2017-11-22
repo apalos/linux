@@ -92,12 +92,15 @@ static void r8169_destroy_vdev(struct mdev_device *mdev)
 static int r8169_transition_start(struct mdev_device *mdev)
 {
 	struct net_device *netdev = mdev_get_netdev(mdev);
-	int ret;
+
+	dev_hold(netdev);
+
+	if (r8169_init_vdev(mdev)) {
+		dev_put(netdev);
+		return -EINVAL;
+	}
 
 	r8169_mdev_prepare(netdev);
-	ret = r8169_init_vdev(mdev);
-	if (ret)
-		return -EINVAL;
 
 	return 0;
 }
@@ -109,6 +112,8 @@ static int r8169_transition_back(struct mdev_device *mdev)
 
 	r8169_destroy_vdev(mdev);
 	ret = r8169_mdev_destroy(netdev);
+
+	dev_put(netdev);
 
 	return ret;
 }
