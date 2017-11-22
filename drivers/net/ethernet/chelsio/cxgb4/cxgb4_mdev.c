@@ -82,7 +82,7 @@ static int cxgb4_init_vdev(struct mdev_device *mdev)
 	start = pci_resource_start(pdev, VFIO_PCI_BAR0_REGION_INDEX);
 	size = pci_resource_len(pdev, VFIO_PCI_BAR0_REGION_INDEX);
 	offset = VFIO_PCI_INDEX_TO_OFFSET(VFIO_PCI_BAR0_REGION_INDEX);
-	mdev_net_add_essential(region, VFIO_NET_MMIO, VFIO_NET_MDEV_BARS,
+	mdev_net_add_essential(region++, VFIO_NET_MMIO, VFIO_NET_MDEV_BARS,
 			       offset, start >> PAGE_SHIFT, size >> PAGE_SHIFT);
 
 	offset_cnt = netmdev->vdev->bus_regions;
