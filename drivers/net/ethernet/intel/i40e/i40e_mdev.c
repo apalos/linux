@@ -46,10 +46,10 @@ static int i40e_init_vdev(struct mdev_device *mdev)
 	struct pci_dev *pdev = vsi->back->pdev;
 	struct mdev_net_region *region;
 	int i;
-	int offset_cnt = 0;
 	int alloc_regions = 0;
 	phys_addr_t start;
 	u64 size, offset;
+	int offset_cnt;
 
 	netmdev->vdev = kzalloc(sizeof(netmdev->vdev), GFP_KERNEL);
 	if (!netmdev->vdev)
@@ -105,6 +105,7 @@ static int i40e_init_vdev(struct mdev_device *mdev)
 	}
 
 	netmdev->vdev->used_regions = region - netmdev->vdev->regions;
+	BUG_ON(netmdev->vdev->used_regions != alloc_regions);
 
 	return 0;
 
