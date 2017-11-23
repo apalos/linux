@@ -614,8 +614,10 @@ static int netmdev_dev_mmap(struct mdev_device *mdev, struct vm_area_struct *vma
 
 	pfn = nr_pages = 0;
 	if (!region->caps.nr_areas) {
-		pfn = region->pfn;
-		nr_pages = region->nr_pages;
+		if (region->offset == offset) {
+			pfn = region->pfn;
+			nr_pages = region->nr_pages;
+		}
 	} else {
 		int i;
 
@@ -628,7 +630,6 @@ static int netmdev_dev_mmap(struct mdev_device *mdev, struct vm_area_struct *vma
 				nr_pages = area->nr_pages;
 			}
 		}
-
 	}
 
 	req_len = vma->vm_end - vma->vm_start;
@@ -636,7 +637,7 @@ static int netmdev_dev_mmap(struct mdev_device *mdev, struct vm_area_struct *vma
 		((1U << (VFIO_PCI_OFFSET_SHIFT - PAGE_SHIFT)) - 1);
 	req_start = pgoff << PAGE_SHIFT;
 
-	if (req_start + req_len > (u64)nr_pages << PAGE_SHIFT)
+	if (req_len != (u64)nr_pages << PAGE_SHIFT)
 		return -EINVAL;
 
 	vma->vm_private_data = NULL;
