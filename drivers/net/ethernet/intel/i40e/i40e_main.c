@@ -28,6 +28,7 @@
 #include <linux/of_net.h>
 #include <linux/pci.h>
 #include <linux/bpf.h>
+#include <linux/net_mdev.h>
 
 /* Local includes */
 #include "i40e.h"
@@ -114,6 +115,77 @@ MODULE_LICENSE("GPL");
 MODULE_VERSION(DRV_VERSION);
 
 static struct workqueue_struct *i40e_wq;
+
+#ifdef CONFIG_SYSFS
+static ssize_t rx_queue_doorbell_offset_show(struct netdev_rx_queue *queue,
+					     struct rx_queue_attribute
+					     *attribute, char *buf)
+{
+	struct i40e_netdev_priv *np = netdev_priv(queue->dev);
+	struct i40e_vsi *vsi = np->vsi;
+	struct i40e_hw *hw = &vsi->back->hw;
+	unsigned int rxq_idx = get_netdev_rx_queue_index(queue);
+	struct i40e_ring *rxq = vsi->rx_rings[rxq_idx];
+
+	BUG_ON(rxq_idx >= vsi->alloc_queue_pairs);
+
+	return sprintf(buf, "0x%lx", rxq->tail - hw->hw_addr);
+}
+
+static struct rx_queue_attribute rx_queue_doorbell_offset_attribute = {
+	.attr = { .name = "doorbell_offset", .mode = 0444 },
+	.show = rx_queue_doorbell_offset_show
+};
+
+static struct attribute *i40e_sysfs_rx_queue_attrs[] = {
+	&rx_queue_doorbell_offset_attribute.attr,
+	NULL
+};
+
+static const struct attribute_group i40e_sysfs_rx_queue_group = {
+	.name = "i40e",
+	.attrs = i40e_sysfs_rx_queue_attrs
+};
+
+static inline unsigned int get_netdev_tx_queue_index(struct netdev_queue *queue)
+{
+	struct net_device *dev = queue->dev;
+	int index = queue - dev->_tx;
+
+	BUG_ON(index >= dev->num_tx_queues);
+	return index;
+}
+
+static ssize_t tx_queue_doorbell_offset_show(struct netdev_queue *queue,
+					     struct netdev_queue_attribute
+					     *attribute, char *buf)
+{
+	struct i40e_netdev_priv *np = netdev_priv(queue->dev);
+	struct i40e_vsi *vsi = np->vsi;
+	struct i40e_hw *hw = &vsi->back->hw;
+	unsigned int txq_idx = get_netdev_tx_queue_index(queue);
+	struct i40e_ring *txq = vsi->tx_rings[txq_idx];
+
+	BUG_ON(txq_idx >= vsi->alloc_queue_pairs);
+
+	return sprintf(buf, "0x%lx", txq->tail - hw->hw_addr);
+}
+
+static struct netdev_queue_attribute tx_queue_doorbell_offset_attribute = {
+	.attr = { .name = "doorbell_offset", .mode = 0444 },
+	.show = tx_queue_doorbell_offset_show
+};
+
+static struct attribute *i40e_sysfs_tx_queue_attrs[] = {
+	&tx_queue_doorbell_offset_attribute.attr,
+	NULL
+};
+
+static const struct attribute_group i40e_sysfs_tx_queue_group = {
+	.name = "i40e",
+	.attrs = i40e_sysfs_tx_queue_attrs
+};
+#endif /* CONFIG_SYSFS */
 
 /**
  * i40e_allocate_dma_mem_d - OS specific memory alloc for shared code
@@ -10418,6 +10490,19 @@ struct i40e_vsi *i40e_vsi_setup(struct i40e_pf *pf, u8 type,
 		ret = i40e_config_netdev(vsi);
 		if (ret)
 			goto err_netdev;
+#ifdef CONFIG_SYSFS
+		vsi->netdev->sysfs_rx_queue_group = &i40e_sysfs_rx_queue_group;
+
+		/* TODO: redo this crap using sysfs_tx_queue_group */
+		for (i = 0; !ret && i < vsi->alloc_queue_pairs; i++) {
+			struct netdev_queue *queue = &vsi->netdev->_tx[i];
+
+			ret = sysfs_create_group(&queue->kobj,
+						 &i40e_sysfs_tx_queue_group);
+		}
+		if (ret)
+			goto err_netdev;
+#endif /* CONFIG_SYSFS */
 		ret = register_netdev(vsi->netdev);
 		if (ret)
 			goto err_netdev;
