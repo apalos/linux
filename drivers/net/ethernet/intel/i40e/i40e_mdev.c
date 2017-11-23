@@ -127,6 +127,8 @@ static void i40e_destroy_vdev(struct mdev_device *mdev)
 static int i40e_transition_start(struct mdev_device *mdev)
 {
 	struct net_device *netdev = mdev_get_netdev(mdev);
+	struct i40e_netdev_priv *np = netdev_priv(netdev);
+	struct i40e_vsi *vsi = np->vsi;
 
 	dev_hold(netdev);
 
@@ -135,12 +137,24 @@ static int i40e_transition_start(struct mdev_device *mdev)
 		return -EINVAL;
 	}
 
+	if (netif_running(netdev)) {
+		set_bit(__I40E_VSI_REINIT_REQUESTED, vsi->state);
+		i40e_do_reset(vsi->back, __I40E_REINIT_REQUESTED, false);
+	}
+
 	return 0;
 }
 
 static int i40e_transition_back(struct mdev_device *mdev)
 {
 	struct net_device *netdev = mdev_get_netdev(mdev);
+	struct i40e_netdev_priv *np = netdev_priv(netdev);
+	struct i40e_vsi *vsi = np->vsi;
+
+	if (netif_running(netdev)) {
+		set_bit(__I40E_VSI_REINIT_REQUESTED, vsi->state);
+		i40e_do_reset(vsi->back, __I40E_REINIT_REQUESTED, false);
+	}
 
 	i40e_destroy_vdev(mdev);
 

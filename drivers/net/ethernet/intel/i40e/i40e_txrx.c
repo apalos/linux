@@ -1381,6 +1381,10 @@ bool i40e_alloc_rx_buffers(struct i40e_ring *rx_ring, u16 cleaned_count)
 	if (!rx_ring->netdev || !cleaned_count)
 		return false;
 
+	/* do nothing if userspace is in charge of RX */
+	if (rx_ring->netdev->priv_flags & IFF_VFNETDEV)
+		return false;
+
 	rx_desc = I40E_RX_DESC(rx_ring, ntu);
 	bi = &rx_ring->rx_bi[ntu];
 

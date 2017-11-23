@@ -319,6 +319,10 @@ static void i40e_tx_timeout(struct net_device *netdev)
 	unsigned int i, hung_queue = 0;
 	u32 head, val;
 
+	/* do nothing if userspace is in charge of TX */
+	if (netdev->priv_flags & IFF_VFNETDEV)
+		return;
+
 	pf->tx_timeout_count++;
 
 	/* find the stopped queue the same way the stack does */
@@ -5489,10 +5493,13 @@ static int i40e_up_complete(struct i40e_vsi *vsi)
 	struct i40e_pf *pf = vsi->back;
 	int err;
 
-	if (pf->flags & I40E_FLAG_MSIX_ENABLED)
-		i40e_vsi_configure_msix(vsi);
-	else
-		i40e_configure_msi_and_legacy(vsi);
+	/* do nothing if userspace is in charge of RX/TX */
+	if (!(vsi->netdev->priv_flags & IFF_VFNETDEV)) {
+		if (pf->flags & I40E_FLAG_MSIX_ENABLED)
+			i40e_vsi_configure_msix(vsi);
+		else
+			i40e_configure_msi_and_legacy(vsi);
+	}
 
 	/* start rings */
 	err = i40e_vsi_start_rings(vsi);
@@ -5500,13 +5507,19 @@ static int i40e_up_complete(struct i40e_vsi *vsi)
 		return err;
 
 	clear_bit(__I40E_VSI_DOWN, vsi->state);
-	i40e_napi_enable_all(vsi);
-	i40e_vsi_enable_irq(vsi);
+
+	/* do nothing if userspace is in charge of RX/TX */
+	if (!(vsi->netdev->priv_flags & IFF_VFNETDEV)) {
+		i40e_napi_enable_all(vsi);
+		i40e_vsi_enable_irq(vsi);
+	}
 
 	if ((pf->hw.phy.link_info.link_info & I40E_AQ_LINK_UP) &&
 	    (vsi->netdev)) {
 		i40e_print_link_message(vsi, true);
-		netif_tx_start_all_queues(vsi->netdev);
+		/* do nothing if userspace is in charge of TX */
+		if (!(vsi->netdev->priv_flags & IFF_VFNETDEV))
+			netif_tx_start_all_queues(vsi->netdev);
 		netif_carrier_on(vsi->netdev);
 	} else if (vsi->netdev) {
 		i40e_print_link_message(vsi, false);
