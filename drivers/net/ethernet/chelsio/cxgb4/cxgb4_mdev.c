@@ -109,6 +109,8 @@ static int cxgb4_init_vdev(struct mdev_device *mdev)
 		mdev_net_add_sparse(region, offset, start >> PAGE_SHIFT,
 				    size >> PAGE_SHIFT);
 
+		region->nr_pages = (offset + size) >> PAGE_SHIFT;
+
 		region++;
 	}
 
