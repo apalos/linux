@@ -27,23 +27,19 @@ static int r8169_init_vdev(struct mdev_device *mdev)
 	u64 size, offset;
 	int offset_cnt;
 
-	netmdev->vdev = kzalloc(sizeof(netmdev->vdev), GFP_KERNEL);
-	if (!netmdev->vdev)
-		goto err;
+	netmdev->vdev.bus_regions = VFIO_PCI_NUM_REGIONS;
+	netmdev->vdev.extra_regions = VFIO_NET_MDEV_NUM_REGIONS;
 
-	netmdev->vdev->bus_regions = VFIO_PCI_NUM_REGIONS;
-	netmdev->vdev->extra_regions = VFIO_NET_MDEV_NUM_REGIONS;
+	netmdev->vdev.bus_flags = VFIO_DEVICE_FLAGS_PCI;
+	netmdev->vdev.num_irqs = 1;
 
-	netmdev->vdev->bus_flags = VFIO_DEVICE_FLAGS_PCI;
-	netmdev->vdev->num_irqs = 1;
-
-	netmdev->vdev->regions =
+	netmdev->vdev.regions =
 	    kzalloc(RTL_USED_REGIONS *
-		    sizeof(*netmdev->vdev->regions), GFP_KERNEL);
-	if (!netmdev->vdev->regions)
+		    sizeof(*netmdev->vdev.regions), GFP_KERNEL);
+	if (!netmdev->vdev.regions)
 		goto err;
 
-	region = netmdev->vdev->regions;
+	region = netmdev->vdev.regions;
 
 	/* BAR MMIO */
 	start = pci_resource_start(pdev, VFIO_PCI_BAR2_REGION_INDEX);
@@ -52,7 +48,7 @@ static int r8169_init_vdev(struct mdev_device *mdev)
 	mdev_net_add_essential(region++, VFIO_NET_MMIO, VFIO_NET_MDEV_BARS,
 			       offset, start >> PAGE_SHIFT, size >> PAGE_SHIFT);
 
-	offset_cnt = netmdev->vdev->bus_regions;
+	offset_cnt = netmdev->vdev.bus_regions;
 
 	/* Rx */
 	start = virt_to_phys(tp->RxDescArray);
@@ -68,8 +64,8 @@ static int r8169_init_vdev(struct mdev_device *mdev)
 	mdev_net_add_essential(region++, VFIO_NET_DESCRIPTORS, VFIO_NET_MDEV_TX,
 			       offset, start >> PAGE_SHIFT, size >> PAGE_SHIFT);
 
-	netmdev->vdev->used_regions = region - netmdev->vdev->regions;
-	BUG_ON(netmdev->vdev->used_regions != RTL_USED_REGIONS);
+	netmdev->vdev.used_regions = region - netmdev->vdev.regions;
+	BUG_ON(netmdev->vdev.used_regions != RTL_USED_REGIONS);
 
 	return 0;
 
@@ -82,11 +78,7 @@ static void r8169_destroy_vdev(struct mdev_device *mdev)
 {
 	struct netmdev *netmdev = mdev_get_drvdata(mdev);
 
-	if (netmdev->vdev) {
-		if (netmdev->vdev->regions)
-			kfree(netmdev->vdev->regions);
-		kfree(netmdev->vdev);
-	}
+	kfree(netmdev->vdev.regions);
 }
 
 static int r8169_transition_start(struct mdev_device *mdev)

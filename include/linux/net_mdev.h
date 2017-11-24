@@ -75,7 +75,7 @@ struct netmdev_driver {
 };
 
 struct netmdev {
-	struct mdev_net_vdev *vdev;
+	struct mdev_net_vdev vdev;
 	union {
 		/* kernel visibility only, not part of UAPI*/
 		char private[4096 * 2];

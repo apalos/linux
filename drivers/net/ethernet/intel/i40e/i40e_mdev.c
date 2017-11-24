@@ -51,25 +51,21 @@ static int i40e_init_vdev(struct mdev_device *mdev)
 	u64 size, offset;
 	int offset_cnt;
 
-	netmdev->vdev = kzalloc(sizeof(netmdev->vdev), GFP_KERNEL);
-	if (!netmdev->vdev)
-		goto err;
-
-	netmdev->vdev->bus_regions = VFIO_PCI_NUM_REGIONS;
-	netmdev->vdev->extra_regions = 2 * vsi->alloc_queue_pairs;
+	netmdev->vdev.bus_regions = VFIO_PCI_NUM_REGIONS;
+	netmdev->vdev.extra_regions = 2 * vsi->alloc_queue_pairs;
 	alloc_regions = vsi->alloc_queue_pairs + 1;
-	netmdev->vdev->used_regions = 0;
+	netmdev->vdev.used_regions = 0;
 
-	netmdev->vdev->bus_flags = VFIO_DEVICE_FLAGS_PCI;
-	netmdev->vdev->num_irqs = 1;
+	netmdev->vdev.bus_flags = VFIO_DEVICE_FLAGS_PCI;
+	netmdev->vdev.num_irqs = 1;
 
-	netmdev->vdev->regions = kcalloc(alloc_regions,
-					 sizeof(*netmdev->vdev->regions),
-					 GFP_KERNEL);
-	if (!netmdev->vdev->regions)
+	netmdev->vdev.regions = kcalloc(alloc_regions,
+					sizeof(*netmdev->vdev.regions),
+					GFP_KERNEL);
+	if (!netmdev->vdev.regions)
 		goto err;
 
-	region = netmdev->vdev->regions;
+	region = netmdev->vdev.regions;
 
 	/* MMIO */
 	start = pci_resource_start(pdev, VFIO_PCI_BAR0_REGION_INDEX);
@@ -78,7 +74,7 @@ static int i40e_init_vdev(struct mdev_device *mdev)
 	mdev_net_add_essential(region++, VFIO_NET_MMIO, VFIO_NET_MDEV_BARS,
 			       offset, start >> PAGE_SHIFT, size >> PAGE_SHIFT);
 
-	offset_cnt = netmdev->vdev->bus_regions;
+	offset_cnt = netmdev->vdev.bus_regions;
 
 	/* Rx */
 	for (i = 0; i < vsi->alloc_queue_pairs; i++) {
@@ -104,8 +100,8 @@ static int i40e_init_vdev(struct mdev_device *mdev)
 				       start >> PAGE_SHIFT, size >> PAGE_SHIFT);
 	}
 
-	netmdev->vdev->used_regions = region - netmdev->vdev->regions;
-	BUG_ON(netmdev->vdev->used_regions != alloc_regions);
+	netmdev->vdev.used_regions = region - netmdev->vdev.regions;
+	BUG_ON(netmdev->vdev.used_regions != alloc_regions);
 
 	return 0;
 
@@ -118,10 +114,7 @@ static void i40e_destroy_vdev(struct mdev_device *mdev)
 {
 	struct netmdev *netmdev = mdev_get_drvdata(mdev);
 
-	if (netmdev->vdev)
-		kfree(netmdev->vdev->regions);
-
-	kfree(netmdev->vdev);
+	kfree(netmdev->vdev.regions);
 }
 
 static int i40e_transition_start(struct mdev_device *mdev)

@@ -407,13 +407,13 @@ struct mdev_net_region *region_from_index(struct mdev_device *mdev, int index)
 	struct netmdev *netmdev = mdev_get_drvdata(mdev);
 	int i;
 
-	if (!netmdev->vdev || !netmdev->vdev->regions)
+	if (!netmdev->vdev.regions)
 		return NULL;
 
-	for (i = 0; i < netmdev->vdev->used_regions; i++) {
-		if (netmdev->vdev->regions[i].offset ==
+	for (i = 0; i < netmdev->vdev.used_regions; i++) {
+		if (netmdev->vdev.regions[i].offset ==
 			VFIO_PCI_INDEX_TO_OFFSET(index))
-				return &netmdev->vdev->regions[i];
+			return &netmdev->vdev.regions[i];
 	}
 
 	return NULL;
@@ -449,7 +449,7 @@ static long netmdev_dev_ioctl(struct mdev_device *mdev, unsigned int cmd,
 	switch (cmd) {
 	case VFIO_DEVICE_GET_INFO:
 		minsz = offsetofend(struct vfio_device_info, num_irqs);
-		if (!netmdev->vdev) {
+		if (!netmdev->vdev.regions) {
 			printk("mdev vdev not initialized properly\n");
 			return -EFAULT;
 		}
@@ -461,15 +461,16 @@ static long netmdev_dev_ioctl(struct mdev_device *mdev, unsigned int cmd,
 			return -EINVAL;
 
 		/* shadow page + rx_ring and tx_ring*/
-		device_info.flags = netmdev->vdev->bus_flags;
-		device_info.num_irqs = netmdev->vdev->num_irqs;
-		device_info.num_regions = netmdev->vdev->bus_regions +
-			netmdev->vdev->extra_regions;
+		device_info.flags = netmdev->vdev.bus_flags;
+		device_info.num_irqs = netmdev->vdev.num_irqs;
+		device_info.num_regions = netmdev->vdev.bus_regions +
+			netmdev->vdev.extra_regions;
 
 		return copy_to_user((void __user *)arg, &device_info, minsz) ?
 			-EFAULT : 0;
 	case VFIO_DEVICE_GET_REGION_INFO:
-		max_regions = netmdev->vdev->bus_regions + netmdev->vdev->extra_regions;
+		max_regions = netmdev->vdev.bus_regions +
+			netmdev->vdev.extra_regions;
 
 		minsz = offsetofend(struct vfio_region_info, offset);
 		if (copy_from_user(&reg_info, (void __user *)arg, minsz))
@@ -602,7 +603,7 @@ static int netmdev_dev_mmap(struct mdev_device *mdev, struct vm_area_struct *vma
 	if ((vma->vm_flags & VM_SHARED) == 0)
 		return -EINVAL;
 
-	max = netmdev->vdev->bus_regions + netmdev->vdev->extra_regions;
+	max = netmdev->vdev.bus_regions + netmdev->vdev.extra_regions;
 
 	index = VFIO_PCI_OFFSET_TO_INDEX(offset);
 	if (index > max)
