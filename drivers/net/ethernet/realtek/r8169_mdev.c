@@ -34,7 +34,7 @@ static int r8169_init_vdev(struct mdev_device *mdev)
 	netmdev->vdev.num_irqs = 1;
 
 	netmdev->vdev.regions =
-	    kzalloc(RTL_USED_REGIONS *
+	    kcalloc(RTL_USED_REGIONS,
 		    sizeof(*netmdev->vdev.regions), GFP_KERNEL);
 	if (!netmdev->vdev.regions)
 		goto err;

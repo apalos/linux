@@ -49,7 +49,7 @@ static int e1000e_init_vdev(struct mdev_device *mdev)
 	netmdev->vdev.num_irqs = 1;
 
 	netmdev->vdev.regions =
-	    kzalloc(E1000E_MDEV_USED_REGIONS *
+	    kcalloc(E1000E_MDEV_USED_REGIONS,
 		    sizeof(*netmdev->vdev.regions), GFP_KERNEL);
 	if (!netmdev->vdev.regions)
 		goto err;

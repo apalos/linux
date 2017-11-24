@@ -60,8 +60,7 @@ static int i40e_init_vdev(struct mdev_device *mdev)
 	netmdev->vdev.num_irqs = 1;
 
 	netmdev->vdev.regions = kcalloc(alloc_regions,
-					sizeof(*netmdev->vdev.regions),
-					GFP_KERNEL);
+					sizeof(*netmdev->vdev.regions), GFP_KERNEL);
 	if (!netmdev->vdev.regions)
 		goto err;
 
