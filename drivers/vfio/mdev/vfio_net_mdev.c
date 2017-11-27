@@ -12,12 +12,18 @@
 #include <uapi/linux/net_mdev.h>
 #include "mdev_private.h"
 
+#ifdef CONFIG_X86
+#include <asm/set_memory.h>
+#include <asm/pat.h>
+#endif
+#include <linux/mm.h>
 #include "mdev_net_private.h"
 
 #define DRIVER_VERSION  "0.1"
 #define DRIVER_AUTHOR   "Linaro"
 #define DRIVER_DESC     "VFIO based driver for mediated network device"
 
+#define MDEV_WC
 /* globals */
 struct netmdev_driver netmdev_known_drivers[256];
 int netmdev_known_drivers_count = 0;
@@ -217,7 +223,7 @@ static void netmdev_dev_release(struct mdev_device *mdev)
 
 	list_for_each_entry_safe(mapping, n, &netmdev->mapping_list_head,
 				 list) {
-		printk(KERN_ERR "stale mapping %d @ 0x%p -> 0x@%llx\n",
+		dev_warn(&mdev->dev, "stale mapping %d @ 0x%p -> 0x@%llx\n",
 		       mapping->size, mapping->cookie, mapping->iova);
 		dma_free_attrs(mapping->dev, mapping->size,
 			       mapping->cookie, mapping->iova,
@@ -246,6 +252,9 @@ static int netmdev_vfio_mmap_dma(struct mdev_device *mdev,
 	enum dma_data_direction direction;
 	struct vm_area_struct *vma;
 	struct iovamap *mapping;
+#ifdef MDEV_WC
+	int ret;
+#endif
 
 	if (param->flags & ~(VFIO_DMA_MAP_FLAG_READ | VFIO_DMA_MAP_FLAG_WRITE))
 		return -EINVAL;
@@ -281,10 +290,12 @@ static int netmdev_vfio_mmap_dma(struct mdev_device *mdev,
 	mapping = kzalloc(sizeof(*mapping), GFP_KERNEL);
 	if (!mapping)
 		return -ENOMEM;
+
 	INIT_LIST_HEAD(&mapping->list);
 	mapping->dev = mdev_parent_dev(mdev);
 	mapping->size = param->size;
 	mapping->direction = direction;
+
 
 	/*
 	 * TODO: allocate close to NUMA node like ixgbe does
@@ -309,14 +320,32 @@ static int netmdev_vfio_mmap_dma(struct mdev_device *mdev,
 	mapping->cookie =
 	    dma_alloc_attrs(mapping->dev, mapping->size, &mapping->iova,
 			    GFP_KERNEL,
+#ifndef MDEV_WC
 			    DMA_ATTR_NO_KERNEL_MAPPING |
+#endif
 			    DMA_ATTR_WRITE_COMBINE);
 	if (!mapping->cookie) {
 		kfree(mapping);
 		return -EFAULT;
 	}
 
-#if 1
+#ifdef MDEV_WC
+	ret = set_memory_wc((unsigned long)(mapping->cookie),
+			    mapping->size >> PAGE_SHIFT);
+	if (!ret)
+		vma->vm_page_prot = pgprot_writecombine(vma->vm_page_prot);
+	if (io_remap_pfn_range(vma, vma->vm_start,
+			    page_to_pfn(virt_to_page(mapping->cookie)),
+			    mapping->size, vma->vm_page_prot) < 0) {
+		set_memory_wb((unsigned long)mapping->cookie,
+			      mapping->size >> PAGE_SHIFT);
+		dma_free_attrs(mapping->dev, mapping->size,
+			       mapping->cookie, mapping->iova,
+			       DMA_ATTR_WRITE_COMBINE);
+		kfree(mapping);
+		return -EFAULT;
+	}
+#else
 	if (dma_mmap_attrs
 	    (mapping->dev, vma, mapping->cookie, mapping->iova,
 	     mapping->size,
@@ -328,25 +357,12 @@ static int netmdev_vfio_mmap_dma(struct mdev_device *mdev,
 		kfree(mapping);
 		return -EFAULT;
 	}
-#else
-	if (remap_pfn_range(vma, vma->vm_start,
-			    page_to_pfn(virt_to_page(mapping->cookie)),
-			    mapping->size, vma->vm_page_prot) < 0) {
-		dma_free_attrs(mapping->dev, mapping->size,
-			       mapping->cookie, mapping->iova,
-			       DMA_ATTR_NO_KERNEL_MAPPING |
-			       DMA_ATTR_WRITE_COMBINE);
-		kfree(mapping);
-		return -EFAULT;
-	}
 #endif
-
 	/* Pass the IOVA to userspace */
 	param->iova = mapping->iova;
 
-	printk(KERN_INFO
-	       "VFIO_IOMMU_MAP_DMA: new mapping %d @ 0x%p -> 0x@%llx\n",
-	       mapping->size, mapping->cookie, mapping->iova);
+	dev_dbg(&mdev->dev, "new iommu dma mapping %d @ 0x%p -> 0x@%llx\n",
+		 mapping->size, mapping->cookie, mapping->iova);
 
 	list_add_tail(&mapping->list, &netmdev->mapping_list_head);
 
@@ -364,10 +380,13 @@ static int netmdev_vfio_unmmap_dma(struct mdev_device *mdev,
 				 list) {
 		if (param->iova == mapping->iova
 		    && param->size == mapping->size) {
-			printk(KERN_INFO
-			       "VFIO_IOMMU_UNMAP_DMA: remove mapping %d @ 0x%p -> 0x@%llx\n",
-			       mapping->size, mapping->cookie,
-			       mapping->iova);
+			dev_dbg(&mdev->dev,
+				"remove iommu dma mapping %d @ 0x%p -> 0x@%llx\n",
+				mapping->size, mapping->cookie, mapping->iova);
+#ifdef MDEV_WC
+			set_memory_wb((unsigned long)mapping->cookie,
+				      mapping->size >> PAGE_SHIFT);
+#endif
 			dma_free_attrs(mapping->dev, mapping->size,
 				       mapping->cookie, mapping->iova,
 				       DMA_ATTR_NO_KERNEL_MAPPING |
@@ -450,7 +469,7 @@ static long netmdev_dev_ioctl(struct mdev_device *mdev, unsigned int cmd,
 	case VFIO_DEVICE_GET_INFO:
 		minsz = offsetofend(struct vfio_device_info, num_irqs);
 		if (!netmdev->vdev.regions) {
-			printk("mdev vdev not initialized properly\n");
+			dev_err(&mdev->dev, "vdev not initialized properly\n");
 			return -EFAULT;
 		}
 
@@ -637,11 +656,10 @@ static int netmdev_dev_mmap(struct mdev_device *mdev, struct vm_area_struct *vma
 	if (req_len != (u64)nr_pages << PAGE_SHIFT)
 		return -EINVAL;
 
-	vma->vm_private_data = NULL;
-	vma->vm_page_prot = pgprot_noncached(vma->vm_page_prot);
+	vma->vm_private_data = &netmdev->vdev;
 	vma->vm_pgoff = pfn;
 
-	return remap_pfn_range(vma, vma->vm_start, vma->vm_pgoff,
+	return io_remap_pfn_range(vma, vma->vm_start, vma->vm_pgoff,
 			       req_len, vma->vm_page_prot);
 }
 
@@ -685,16 +703,12 @@ static struct netmdev_driver_ops *netmdev_get_driver_ops(struct device_driver *d
 {
 	int i;
 
-	printk(KERN_INFO"netmdev_get_driver_ops(%p)\n", driver);
-	for (i = 0; i < netmdev_known_drivers_count; i++)
-	{
-		if (netmdev_known_drivers[i].driver == driver) {
-			printk(KERN_INFO"found driver(%p, %p)\n", driver,
-			       netmdev_known_drivers[i].driver);
+	for (i = 0; i < netmdev_known_drivers_count; i++) {
+		if (netmdev_known_drivers[i].driver == driver)
 			return	netmdev_known_drivers[i].drv_ops;
-		}
 	}
 	printk(KERN_ERR "netmdev_get_driver_ops could not find driver\n");
+
 	return NULL;
 }
 
