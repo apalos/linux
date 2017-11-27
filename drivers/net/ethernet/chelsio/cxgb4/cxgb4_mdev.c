@@ -162,12 +162,6 @@ static int cxgb4_transition_start(struct mdev_device *mdev)
 	}
 
 	t4_intr_disable(adapter);
-
-	if (t4_update_port_info(pi) < 0) {
-		dev_put(netdev);
-		return -EINVAL;
-	}
-
 	/* XXX Check if we have to free queues to save resources */
 	t4_sge_stop(adapter);
 
@@ -180,11 +174,13 @@ static int cxgb4_transition_back(struct mdev_device *mdev)
 	struct port_info *pi = netdev_priv(netdev);
 	struct adapter *adapter = pi->adapter;
 
-	/* Do we need this ??
-	 * enable_rx(adap);
-	 */
 	t4_sge_start(adapter);
 	t4_intr_enable(adapter);
+
+	if (t4_update_port_info(pi) < 0) {
+		dev_put(netdev);
+		return -EINVAL;
+	}
 
 	cxgb4_destroy_vdev(mdev);
 
