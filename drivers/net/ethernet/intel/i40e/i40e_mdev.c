@@ -46,15 +46,14 @@ static int i40e_init_vdev(struct mdev_device *mdev)
 	struct pci_dev *pdev = vsi->back->pdev;
 	struct mdev_net_region *region;
 	int i;
-	int alloc_regions = 0;
+	int alloc_regions;
 	phys_addr_t start;
 	u64 size, offset;
 	int offset_cnt;
 
 	netmdev->vdev.bus_regions = VFIO_PCI_NUM_REGIONS;
-	netmdev->vdev.extra_regions = 2 * vsi->alloc_queue_pairs;
-	alloc_regions = vsi->alloc_queue_pairs + 1;
-	netmdev->vdev.used_regions = 0;
+	netmdev->vdev.extra_regions = 2 * vsi->num_queue_pairs;
+	alloc_regions = 2 * vsi->num_queue_pairs + 1;
 
 	netmdev->vdev.bus_flags = VFIO_DEVICE_FLAGS_PCI;
 	netmdev->vdev.num_irqs = 1;
@@ -76,7 +75,7 @@ static int i40e_init_vdev(struct mdev_device *mdev)
 	offset_cnt = netmdev->vdev.bus_regions;
 
 	/* Rx */
-	for (i = 0; i < vsi->alloc_queue_pairs; i++) {
+	for (i = 0; i < vsi->num_queue_pairs; i++) {
 		struct i40e_ring *rxq = vsi->rx_rings[i];
 
 		start = virt_to_phys(rxq->desc);
@@ -88,7 +87,7 @@ static int i40e_init_vdev(struct mdev_device *mdev)
 	}
 
 	/* Tx */
-	for (i = 0; i < vsi->alloc_queue_pairs; i++) {
+	for (i = 0; i < vsi->num_queue_pairs; i++) {
 		struct i40e_ring *txq = vsi->tx_rings[i];
 
 		start = virt_to_phys(txq->desc);

@@ -5566,7 +5566,7 @@ static int i40e_up_complete(struct i40e_vsi *vsi)
 	int err;
 
 	/* do nothing if userspace is in charge of RX/TX */
-	if (!(vsi->netdev->priv_flags & IFF_VFNETDEV)) {
+	if (vsi->netdev && !(vsi->netdev->priv_flags & IFF_VFNETDEV)) {
 		if (pf->flags & I40E_FLAG_MSIX_ENABLED)
 			i40e_vsi_configure_msix(vsi);
 		else
@@ -5581,7 +5581,7 @@ static int i40e_up_complete(struct i40e_vsi *vsi)
 	clear_bit(__I40E_VSI_DOWN, vsi->state);
 
 	/* do nothing if userspace is in charge of RX/TX */
-	if (!(vsi->netdev->priv_flags & IFF_VFNETDEV)) {
+	if (vsi->netdev && !(vsi->netdev->priv_flags & IFF_VFNETDEV)) {
 		i40e_napi_enable_all(vsi);
 		i40e_vsi_enable_irq(vsi);
 	}
@@ -10492,7 +10492,11 @@ struct i40e_vsi *i40e_vsi_setup(struct i40e_pf *pf, u8 type,
 			goto err_netdev;
 #ifdef CONFIG_SYSFS
 		vsi->netdev->sysfs_rx_queue_group = &i40e_sysfs_rx_queue_group;
-
+#endif /* CONFIG_SYSFS */
+		ret = register_netdev(vsi->netdev);
+		if (ret)
+			goto err_netdev;
+#ifdef CONFIG_SYSFS
 		/* TODO: redo this crap using sysfs_tx_queue_group */
 		for (i = 0; !ret && i < vsi->alloc_queue_pairs; i++) {
 			struct netdev_queue *queue = &vsi->netdev->_tx[i];
@@ -10503,9 +10507,6 @@ struct i40e_vsi *i40e_vsi_setup(struct i40e_pf *pf, u8 type,
 		if (ret)
 			goto err_netdev;
 #endif /* CONFIG_SYSFS */
-		ret = register_netdev(vsi->netdev);
-		if (ret)
-			goto err_netdev;
 		i40e_register_netmdev(&pf->pdev->dev);
 		vsi->netdev_registered = true;
 		netif_carrier_off(vsi->netdev);
