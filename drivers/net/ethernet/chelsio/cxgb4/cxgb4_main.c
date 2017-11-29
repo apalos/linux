@@ -4880,14 +4880,14 @@ static ssize_t rx_queue_doorbell_offset_show(struct netdev_rx_queue *queue,
 {
 	struct port_info *pi = netdev_priv(queue->dev);
 	unsigned int queue_index = get_netdev_rx_queue_index(queue);
-	struct sge_rspq *iq = &pi->adapter->sge.ethrxq[queue_index].rspq;
+	struct sge_fl *fl = &pi->adapter->sge.ethrxq[queue_index].fl;
 	uint32_t doorbell_offset;
 
 	BUG_ON(queue_index >= pi->nqsets);
 
-	if (iq->bar2_addr)
+	if (fl->bar2_addr)
 		doorbell_offset =
-		    iq->bar2_addr - pi->adapter->bar2 + SGE_UDB_KDOORBELL;
+		    fl->bar2_addr - pi->adapter->bar2 + SGE_UDB_KDOORBELL;
 	else
 		doorbell_offset = MYPF_REG(SGE_PF_KDOORBELL_A);
 
@@ -4904,15 +4904,17 @@ static ssize_t rx_queue_doorbell_key_show(struct netdev_rx_queue *queue,
 {
 	struct port_info *pi = netdev_priv(queue->dev);
 	unsigned int rxq_idx = get_netdev_rx_queue_index(queue);
-	struct sge_rspq *rxq = &pi->adapter->sge.ethrxq[rxq_idx].rspq;
+	struct sge_fl *rxq = &pi->adapter->sge.ethrxq[rxq_idx].fl;
 	uint32_t doorbell_key;
 
 	BUG_ON(rxq_idx >= pi->nqsets);
 
 	if (rxq->bar2_addr)
-		doorbell_key = QID_V(rxq->bar2_qid);
+		doorbell_key = pi->adapter->params.arch.sge_fl_db |
+			QID_V(rxq->bar2_qid);
 	else
-		doorbell_key = QID_V(rxq->cntxt_id);
+		doorbell_key = pi->adapter->params.arch.sge_fl_db |
+			QID_V(rxq->cntxt_id);
 
 	return sprintf(buf, "0x%x", doorbell_key);
 }
