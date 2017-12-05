@@ -135,14 +135,14 @@ static ssize_t netdev_store(struct device *dev, struct device_attribute *attr,
 		memcpy(&netmdev->drv_ops, ops, sizeof(netmdev->drv_ops));
 	} else {
 		dev_put(port);
-		return -1;
+		return -EINVAL;
 	}
 	netmdev->netdev = port;
 
 	return count;
 }
-static DEVICE_ATTR_RW(netdev);
 
+static DEVICE_ATTR_RW(netdev);
 static struct attribute *sysfs_mdev_vfnetdev_attributes[] = {
 	&dev_attr_netdev.attr,
 	NULL,
@@ -197,9 +197,6 @@ static int netmdev_dev_open(struct mdev_device *mdev)
 	port->priv_flags |= IFF_VFNETDEV;
 	if (netmdev->drv_ops.transition_start(mdev))
 		return -EINVAL;
-
-	/* FIXME : uggly and dangerous, let's find a clean way to shadow the values*/
-	memcpy(&netmdev->uapi, &port->features, sizeof(struct netmdev_uapi));
 
 	return 0;
 }
@@ -782,6 +779,7 @@ EXPORT_SYMBOL(mdev_net_add_essential);
 static int __init netmdev_init(void)
 {
 	memset(netmdev_known_drivers, 0, sizeof(netmdev_known_drivers));
+
 	return 0;
 }
 

@@ -85,12 +85,6 @@ struct netmdev {
 			struct list_head mapping_list_head;
 		};
 	};
-	union {
-		/* shadow features & statistics page */
-		/* part of UAPI */
-		char uapioffset[4096];
-		struct netmdev_uapi uapi;
-	};
 } ;
 
 int netmdev_register_device(struct device* dev, struct netmdev_driver_ops *ops);

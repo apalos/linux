@@ -37,28 +37,18 @@ enum vfio_net_mdev_regions {
 	VFIO_NET_MDEV_NUM_REGIONS,
 };
 
-
-/* The features are required to inform the userland about some parameters
- * net_devce_stats does not seem to be usefull
- * would need to trap ethtool_stats which uses hardware counter
- * strangely, despite I can read packets from userland, ifconfig does not
- * report any new packets
- */
-struct netmdev_uapi {
-	/* Most of the structs are not availabnle on userspace*/
-#if 0
-	netdev_features_t	features;
-	netdev_features_t	hw_features;
-	netdev_features_t	wanted_features;
-	netdev_features_t	vlan_features;
-	netdev_features_t	hw_enc_features;
-	netdev_features_t	mpls_features;
-	netdev_features_t	gso_partial_features;
-	atomic_long_t		rx_dropped;
-	atomic_long_t		tx_dropped;
-	atomic_long_t		rx_nohandler;
-	struct net_device_stats	stats;
-#endif
-};
+/* We might need access to some of these
+netdev_features_t	features;
+netdev_features_t	hw_features;
+netdev_features_t	wanted_features;
+netdev_features_t	vlan_features;
+netdev_features_t	hw_enc_features;
+netdev_features_t	mpls_features;
+netdev_features_t	gso_partial_features;
+atomic_long_t		rx_dropped;
+atomic_long_t		tx_dropped;
+atomic_long_t		rx_nohandler;
+struct net_device_stats	stats;
+*/
 
 #endif /* _UAPI__LINUX_NET_MDEV_H */
