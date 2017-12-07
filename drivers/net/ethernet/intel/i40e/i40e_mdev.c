@@ -123,14 +123,17 @@ static int i40e_transition_start(struct mdev_device *mdev)
 
 	dev_hold(netdev);
 
+#if 0
+	if (netif_running(netdev)) {
+		set_bit(__I40E_VSI_REINIT_REQUESTED, vsi->state);
+		i40e_do_reset(vsi->back, BIT_ULL(__I40E_REINIT_REQUESTED),
+			      false);
+	}
+#endif
+
 	if (i40e_init_vdev(mdev)) {
 		dev_put(netdev);
 		return -EINVAL;
-	}
-
-	if (netif_running(netdev)) {
-		set_bit(__I40E_VSI_REINIT_REQUESTED, vsi->state);
-		i40e_do_reset(vsi->back, __I40E_REINIT_REQUESTED, false);
 	}
 
 	return 0;
@@ -142,12 +145,15 @@ static int i40e_transition_back(struct mdev_device *mdev)
 	struct i40e_netdev_priv *np = netdev_priv(netdev);
 	struct i40e_vsi *vsi = np->vsi;
 
+	i40e_destroy_vdev(mdev);
+
+#if 0
 	if (netif_running(netdev)) {
 		set_bit(__I40E_VSI_REINIT_REQUESTED, vsi->state);
-		i40e_do_reset(vsi->back, __I40E_REINIT_REQUESTED, false);
+		i40e_do_reset(vsi->back, BIT_ULL(__I40E_REINIT_REQUESTED),
+			      false);
 	}
-
-	i40e_destroy_vdev(mdev);
+#endif
 
 	dev_put(netdev);
 

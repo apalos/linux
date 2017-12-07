@@ -184,6 +184,7 @@ static int i40e_program_fdir_filter(struct i40e_fdir_filter *fdir_data,
 	/* Mark the data descriptor to be watched */
 	first->next_to_watch = tx_desc;
 
+	printk("%s:Achtung, minen!\n", __FUNCTION__);
 	writel(tx_ring->next_to_use, tx_ring->tail);
 	return 0;
 
@@ -1274,6 +1275,8 @@ static inline void i40e_release_rx_desc(struct i40e_ring *rx_ring, u32 val)
 	/* update next to alloc since we have filled the ring */
 	rx_ring->next_to_alloc = val;
 
+	return;
+
 	/* Force memory writes to complete before letting h/w
 	 * know there are new descriptors to fetch.  (Only
 	 * applicable for weak-ordered memory model archs,
@@ -1381,8 +1384,11 @@ bool i40e_alloc_rx_buffers(struct i40e_ring *rx_ring, u16 cleaned_count)
 	if (!rx_ring->netdev || !cleaned_count)
 		return false;
 
+#if 0
 	/* do nothing if userspace is in charge of RX */
 	if (rx_ring->netdev->priv_flags & IFF_VFNETDEV)
+		return false;
+#endif
 		return false;
 
 	rx_desc = I40E_RX_DESC(rx_ring, ntu);
@@ -2335,6 +2341,11 @@ int i40e_napi_poll(struct napi_struct *napi, int budget)
 		return 0;
 	}
 
+	// if (vsi->netdev->priv_flags & IFF_VFNETDEV) {
+		napi_complete(napi);
+		return 0;
+	// }
+
 	/* Since the actual Tx work is minimal, we can give the Tx a larger
 	 * budget and be more aggressive about cleaning up the Tx descriptors.
 	 */
@@ -3219,6 +3230,7 @@ do_rs:
 
 	/* notify HW of packet */
 	if (desc_count) {
+		printk("%s:Achtung, minen!\n", __FUNCTION__);
 		writel(i, tx_ring->tail);
 
 		/* we need this if more than one processor can write to our tail
@@ -3321,6 +3333,9 @@ static netdev_tx_t i40e_xmit_frame_ring(struct sk_buff *skb,
 	u8 hdr_len = 0;
 	int tso, count;
 	int tsyn;
+
+	dev_kfree_skb_any(skb);
+	return NETDEV_TX_OK;
 
 	/* prefetch the data, we'll need it later */
 	prefetch(skb->data);
