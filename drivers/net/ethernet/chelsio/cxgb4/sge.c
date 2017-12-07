@@ -54,6 +54,8 @@
 #include "t4fw_api.h"
 #include "cxgb4_ptp.h"
 
+extern int cxgb4_mdev;
+
 /*
  * Rx buffer size.  We use largish buffers if possible but settle for single
  * pages under memory shortage.
@@ -585,6 +587,10 @@ static unsigned int refill_fl(struct adapter *adap, struct sge_fl *q, int n,
 	__be64 *d = &q->desc[q->pidx];
 	struct rx_sw_desc *sd = &q->sdesc[q->pidx];
 	int node;
+
+	/* Temporary, to be removed once transition is working properly */
+	if (cxgb4_mdev)
+		return 0;
 
 #ifdef CONFIG_DEBUG_FS
 	if (test_bit(q->cntxt_id - adap->sge.egr_start, adap->sge.blocked_fl))
@@ -1181,6 +1187,9 @@ netdev_tx_t t4_eth_xmit(struct sk_buff *skb, struct net_device *dev)
 	int err;
 #endif /* CONFIG_CHELSIO_T4_FCOE */
 
+	/* Temporary, to be removed once transition is working properly */
+	if (cxgb4_mdev)
+		goto out_free;
 	/*
 	 * The chip min packet length is 10 octets but play safe and reject
 	 * anything shorter than an Ethernet header.

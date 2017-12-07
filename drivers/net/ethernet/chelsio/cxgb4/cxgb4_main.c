@@ -182,6 +182,10 @@ DEFINE_MUTEX(uld_mutex);
 #if IS_ENABLED(CONFIG_VFIO_MDEV_NET_DEVICE)
 void cxgb4_register_netmdev(struct device *dev);
 void cxgb4_unregister_netmdev(struct device *dev);
+/* Temporary, to be removed once transition is working properly */
+int cxgb4_mdev = 0;
+module_param(cxgb4_mdev, int, 0);
+MODULE_PARM_DESC(cxgb4_mdev, "Support mediated device setup. Traffic will *not* work");
 #endif
 
 
@@ -849,7 +853,11 @@ static int setup_sge_queues(struct adapter *adap)
 				adap->msi_idx++;
 			err = t4_sge_alloc_rxq(adap, &q->rspq, false, dev,
 					       adap->msi_idx, &q->fl,
-					       t4_ethrx_handler,
+						/*
+						* Temporary, to be removed once transition is working properly
+						* setting the handler to NULL will not enable napi
+						*/
+					       cxgb4_mdev ? NULL : t4_ethrx_handler,
 					       NULL,
 					       t4_get_tp_ch_map(adap,
 								pi->tx_chan));
