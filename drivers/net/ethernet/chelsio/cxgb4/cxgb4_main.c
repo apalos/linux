@@ -184,6 +184,7 @@ void cxgb4_register_netmdev(struct device *dev);
 void cxgb4_unregister_netmdev(struct device *dev);
 #endif
 
+
 static void link_report(struct net_device *dev)
 {
 	if (!netif_carrier_ok(dev))
@@ -4253,6 +4254,8 @@ static void cfg_queues(struct adapter *adap)
 
 		pi->first_qset = qidx;
 		pi->nqsets = is_kdump_kernel() ? 1 : 8;
+		/* Only support 1 rx queue for now */
+		pi->nqsets = 1;
 		qidx += pi->nqsets;
 	}
 #else /* !CONFIG_CHELSIO_T4_DCB */
@@ -4875,15 +4878,15 @@ static const struct attribute_group cxgb4_sysfs_group = {
 	.attrs = cxgb4_sysfs_attrs
 };
 
-static ssize_t rx_queue_doorbell_offset_show(struct netdev_rx_queue *queue,
+static ssize_t rx_queue_doorbell_fl_offset_show(struct netdev_rx_queue *queue,
 		struct rx_queue_attribute *attribute, char *buf)
 {
 	struct port_info *pi = netdev_priv(queue->dev);
-	unsigned int queue_index = get_netdev_rx_queue_index(queue);
-	struct sge_fl *fl = &pi->adapter->sge.ethrxq[queue_index].fl;
+	unsigned int rxq_idx = get_netdev_rx_queue_index(queue);
+	struct sge_fl *fl = &pi->adapter->sge.ethrxq[rxq_idx].fl;
 	uint32_t doorbell_offset;
 
-	BUG_ON(queue_index >= pi->nqsets);
+	BUG_ON(rxq_idx >= pi->nqsets);
 
 	if (fl->bar2_addr)
 		doorbell_offset =
@@ -4894,12 +4897,12 @@ static ssize_t rx_queue_doorbell_offset_show(struct netdev_rx_queue *queue,
 	return sprintf(buf, "0x%x", doorbell_offset);
 }
 
-static struct rx_queue_attribute rx_queue_doorbell_offset_attribute = {
-	.attr = { .name = "doorbell_offset", .mode = S_IRUGO },
-	.show = rx_queue_doorbell_offset_show
+static struct rx_queue_attribute rx_queue_doorbell_fl_offset_attribute = {
+	.attr = { .name = "doorbell_fl_offset", .mode = S_IRUGO },
+	.show = rx_queue_doorbell_fl_offset_show
 };
 
-static ssize_t rx_queue_doorbell_key_show(struct netdev_rx_queue *queue,
+static ssize_t rx_queue_doorbell_fl_key_show(struct netdev_rx_queue *queue,
 		struct rx_queue_attribute *attribute, char *buf)
 {
 	struct port_info *pi = netdev_priv(queue->dev);
@@ -4919,14 +4922,66 @@ static ssize_t rx_queue_doorbell_key_show(struct netdev_rx_queue *queue,
 	return sprintf(buf, "0x%x", doorbell_key);
 }
 
-static struct rx_queue_attribute rx_queue_doorbell_key_attribute = {
-	.attr = { .name = "doorbell_key", .mode = S_IRUGO },
-	.show = rx_queue_doorbell_key_show
+static struct rx_queue_attribute rx_queue_doorbell_fl_key_attribute = {
+	.attr = { .name = "doorbell_fl_key", .mode = S_IRUGO },
+	.show = rx_queue_doorbell_fl_key_show
+};
+
+static ssize_t rx_queue_doorbell_desc_offset_show(struct netdev_rx_queue *queue,
+		struct rx_queue_attribute *attribute, char *buf)
+{
+	struct port_info *pi = netdev_priv(queue->dev);
+	unsigned int rxq_idx = get_netdev_rx_queue_index(queue);
+	struct sge_rspq *q = &pi->adapter->sge.ethrxq[rxq_idx].rspq;
+	uint32_t doorbell_offset;
+
+	BUG_ON(rxq_idx >= pi->nqsets);
+
+	if (q->bar2_addr)
+		doorbell_offset =
+		    q->bar2_addr - pi->adapter->bar2 + SGE_UDB_GTS;
+	else
+		doorbell_offset = MYPF_REG(SGE_PF_GTS_A);
+
+	return sprintf(buf, "0x%x", doorbell_offset);
+}
+
+static struct rx_queue_attribute rx_queue_doorbell_desc_offset_attribute = {
+	.attr = { .name = "doorbell_desc_offset", .mode = S_IRUGO },
+	.show = rx_queue_doorbell_desc_offset_show
+};
+
+static ssize_t rx_queue_doorbell_desc_key_show(struct netdev_rx_queue *queue,
+		struct rx_queue_attribute *attribute, char *buf)
+{
+	struct port_info *pi = netdev_priv(queue->dev);
+	unsigned int rxq_idx = get_netdev_rx_queue_index(queue);
+	struct sge_rspq *q = &pi->adapter->sge.ethrxq[rxq_idx].rspq;
+	uint32_t doorbell_key = QINTR_TIMER_IDX_V(7);
+
+	BUG_ON(rxq_idx >= pi->nqsets);
+
+	/* FIXME disable interrupts instead of delaying them */
+	doorbell_key = SEINTARM_V(doorbell_key);
+
+	if (q->bar2_addr)
+		doorbell_key |= INGRESSQID_V(q->bar2_qid);
+	else
+		doorbell_key |= INGRESSQID_V(q->cntxt_id);
+
+	return sprintf(buf, "0x%x", doorbell_key);
+}
+
+static struct rx_queue_attribute rx_queue_doorbell_desc_key_attribute = {
+	.attr = { .name = "doorbell_desc_key", .mode = S_IRUGO },
+	.show = rx_queue_doorbell_desc_key_show
 };
 
 static struct attribute *cxgb4_sysfs_rx_queue_attrs[] = {
-	&rx_queue_doorbell_offset_attribute.attr,
-	&rx_queue_doorbell_key_attribute.attr,
+	&rx_queue_doorbell_fl_offset_attribute.attr,
+	&rx_queue_doorbell_fl_key_attribute.attr,
+	&rx_queue_doorbell_desc_offset_attribute.attr,
+	&rx_queue_doorbell_desc_key_attribute.attr,
 	NULL
 };
 
@@ -4944,7 +4999,7 @@ static inline unsigned int get_netdev_tx_queue_index(struct netdev_queue *queue)
 	return index;
 }
 
-static ssize_t tx_queue_doorbell_offset_show(struct netdev_queue *queue,
+static ssize_t tx_queue_doorbell_desc_offset_show(struct netdev_queue *queue,
 		struct netdev_queue_attribute *attribute, char *buf)
 {
 	struct port_info *pi = netdev_priv(queue->dev);
@@ -4963,9 +5018,9 @@ static ssize_t tx_queue_doorbell_offset_show(struct netdev_queue *queue,
 	return sprintf(buf, "0x%x", doorbell_offset);
 }
 
-static struct netdev_queue_attribute tx_queue_doorbell_offset_attribute = {
-	.attr = { .name = "doorbell_offset", .mode = S_IRUGO },
-	.show = tx_queue_doorbell_offset_show
+static struct netdev_queue_attribute tx_queue_doorbell_desc_offset_attribute = {
+	.attr = { .name = "doorbell_desc_offset", .mode = S_IRUGO },
+	.show = tx_queue_doorbell_desc_offset_show
 };
 
 static ssize_t tx_queue_doorbell_key_show(struct netdev_queue *queue,
@@ -4987,12 +5042,12 @@ static ssize_t tx_queue_doorbell_key_show(struct netdev_queue *queue,
 }
 
 static struct netdev_queue_attribute tx_queue_doorbell_key_attribute = {
-	.attr = { .name = "doorbell_key", .mode = S_IRUGO },
+	.attr = { .name = "doorbell_desc_key", .mode = S_IRUGO },
 	.show = tx_queue_doorbell_key_show
 };
 
 static struct attribute *cxgb4_sysfs_tx_queue_attrs[] = {
-	&tx_queue_doorbell_offset_attribute.attr,
+	&tx_queue_doorbell_desc_offset_attribute.attr,
 	&tx_queue_doorbell_key_attribute.attr,
 	NULL
 };
