@@ -2341,11 +2341,7 @@ int i40e_napi_poll(struct napi_struct *napi, int budget)
 		return 0;
 	}
 
-	// if (vsi->netdev->priv_flags & IFF_VFNETDEV) {
-		napi_complete(napi);
-		return 0;
-	// }
-
+#if 0
 	/* Since the actual Tx work is minimal, we can give the Tx a larger
 	 * budget and be more aggressive about cleaning up the Tx descriptors.
 	 */
@@ -2357,6 +2353,7 @@ int i40e_napi_poll(struct napi_struct *napi, int budget)
 		arm_wb |= ring->arm_wb;
 		ring->arm_wb = false;
 	}
+#endif
 
 	/* Handle case where we are called by netpoll with a budget of 0 */
 	if (budget <= 0)
@@ -2367,6 +2364,7 @@ int i40e_napi_poll(struct napi_struct *napi, int budget)
 	 */
 	budget_per_ring = max(budget/q_vector->num_ringpairs, 1);
 
+#if 0
 	i40e_for_each_ring(ring, q_vector->rx) {
 		int cleaned = i40e_clean_rx_irq(ring, budget_per_ring);
 
@@ -2375,6 +2373,7 @@ int i40e_napi_poll(struct napi_struct *napi, int budget)
 		if (cleaned >= budget_per_ring)
 			clean_complete = false;
 	}
+#endif
 
 	/* If work not completed, return budget and polling will return */
 	if (!clean_complete) {

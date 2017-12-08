@@ -5565,13 +5565,10 @@ static int i40e_up_complete(struct i40e_vsi *vsi)
 	struct i40e_pf *pf = vsi->back;
 	int err;
 
-	/* do nothing if userspace is in charge of RX/TX */
-	// if (vsi->netdev && !(vsi->netdev->priv_flags & IFF_VFNETDEV)) {
-		if (pf->flags & I40E_FLAG_MSIX_ENABLED)
-			i40e_vsi_configure_msix(vsi);
-		else
-			i40e_configure_msi_and_legacy(vsi);
-	// }
+	if (pf->flags & I40E_FLAG_MSIX_ENABLED)
+		i40e_vsi_configure_msix(vsi);
+	else
+		i40e_configure_msi_and_legacy(vsi);
 
 	/* start rings */
 	err = i40e_vsi_start_rings(vsi);
@@ -5580,12 +5577,12 @@ static int i40e_up_complete(struct i40e_vsi *vsi)
 
 	clear_bit(__I40E_VSI_DOWN, vsi->state);
 
-#if 0
+#if 1
 	/* do nothing if userspace is in charge of RX/TX */
-	if (vsi->netdev && !(vsi->netdev->priv_flags & IFF_VFNETDEV)) {
+	// if (vsi->netdev && !(vsi->netdev->priv_flags & IFF_VFNETDEV)) {
 		i40e_napi_enable_all(vsi);
 		i40e_vsi_enable_irq(vsi);
-	}
+	// }
 #endif
 
 	if ((pf->hw.phy.link_info.link_info & I40E_AQ_LINK_UP) &&
@@ -9022,13 +9019,9 @@ static int i40e_sw_init(struct i40e_pf *pf)
 	int size;
 
 	/* Set default capability flags */
-#if 0
 	pf->flags = I40E_FLAG_RX_CSUM_ENABLED |
 		    I40E_FLAG_MSI_ENABLED     |
 		    I40E_FLAG_MSIX_ENABLED;
-#else
-	pf->flags = I40E_FLAG_RX_CSUM_ENABLED;
-#endif
 
 	/* Set default ITR */
 	pf->rx_itr_default = I40E_ITR_DYNAMIC | I40E_ITR_RX_DEF;
