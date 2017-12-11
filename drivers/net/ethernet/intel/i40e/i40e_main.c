@@ -3553,7 +3553,9 @@ static irqreturn_t i40e_msix_clean_rings(int irq, void *data)
 	if (!q_vector->tx.ring && !q_vector->rx.ring)
 		return IRQ_HANDLED;
 
+#if 0
 	napi_schedule_irqoff(&q_vector->napi);
+#endif
 
 	return IRQ_HANDLED;
 }
@@ -3767,6 +3769,7 @@ static irqreturn_t i40e_intr(int irq, void *data)
 		set_bit(__I40E_CORE_RESET_REQUESTED, pf->state);
 	}
 
+#if 0
 	/* only q0 is used in MSI/Legacy mode, and none are used in MSIX */
 	if (icr0 & I40E_PFINT_ICR0_QUEUE_0_MASK) {
 		struct i40e_vsi *vsi = pf->vsi[pf->lan_vsi];
@@ -3781,6 +3784,7 @@ static irqreturn_t i40e_intr(int irq, void *data)
 		if (!test_bit(__I40E_DOWN, pf->state))
 			napi_schedule_irqoff(&q_vector->napi);
 	}
+#endif
 
 	if (icr0 & I40E_PFINT_ICR0_ADMINQ_MASK) {
 		ena_mask &= ~I40E_PFINT_ICR0_ENA_ADMINQ_MASK;
