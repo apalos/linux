@@ -4262,8 +4262,9 @@ static void cfg_queues(struct adapter *adap)
 
 		pi->first_qset = qidx;
 		pi->nqsets = is_kdump_kernel() ? 1 : 8;
-		/* Only support 1 rx queue for now */
-		pi->nqsets = 1;
+		/* Temporary, to be removed once transition is working properly */
+		if (cxgb4_mdev)
+			pi->nqsets = 1;
 		qidx += pi->nqsets;
 	}
 #else /* !CONFIG_CHELSIO_T4_DCB */
