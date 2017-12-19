@@ -57,6 +57,7 @@ static int cxgb4_init_vdev(struct mdev_device *mdev)
 	phys_addr_t start;
 	u64 size, offset;
 	int offset_cnt;
+	int bar_index;
 
 	netmdev->vdev.bus_regions = VFIO_PCI_NUM_REGIONS;
 	netmdev->vdev.extra_regions = 2 * pi->nqsets;
@@ -74,13 +75,13 @@ static int cxgb4_init_vdev(struct mdev_device *mdev)
 
 	region = netmdev->vdev.regions;
 
-	/* BAR MMIO */
-	start = pci_resource_start(pdev, VFIO_PCI_BAR0_REGION_INDEX);
-	size = pci_resource_len(pdev, VFIO_PCI_BAR0_REGION_INDEX);
-	offset = VFIO_PCI_INDEX_TO_OFFSET(VFIO_PCI_BAR0_REGION_INDEX);
+	bar_index = is_t4(pi->adapter->params.chip) ? VFIO_PCI_BAR0_REGION_INDEX :
+		VFIO_PCI_BAR2_REGION_INDEX;
+	start = pci_resource_start(pdev, bar_index);
+	size = pci_resource_len(pdev, bar_index);
+	offset = VFIO_PCI_INDEX_TO_OFFSET(bar_index);
 	mdev_net_add_essential(region++, VFIO_NET_MMIO, VFIO_NET_MDEV_BARS,
 			       offset, start >> PAGE_SHIFT, size >> PAGE_SHIFT);
-
 	offset_cnt = netmdev->vdev.bus_regions;
 
 	/* Rx + Rx free list */
