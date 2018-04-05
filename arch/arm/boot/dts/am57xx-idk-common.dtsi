@@ -368,7 +368,7 @@
 
 &mac {
 	status = "okay";
-	dual_emac;
+	//dual_emac;
 };
 
 &cpsw_emac0 {

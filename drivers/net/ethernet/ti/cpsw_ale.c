@@ -460,6 +460,34 @@ int cpsw_ale_add_vlan(struct cpsw_ale *ale, u16 vid, int port, int untag,
 }
 EXPORT_SYMBOL_GPL(cpsw_ale_add_vlan);
 
+/* returns mask of current untagged members for specificed vlan */
+int cpsw_ale_read_untagged(struct cpsw_ale *ale, u16 vid)
+{
+	u32 ale_entry[ALE_ENTRY_WORDS] = {0, 0, 0};
+	int idx;
+
+	idx = cpsw_ale_match_vlan(ale, vid);
+	if (idx >= 0)
+		cpsw_ale_read(ale, idx, ale_entry);
+
+	return cpsw_ale_get_vlan_untag_force(ale_entry, ale->vlan_field_bits);
+}
+EXPORT_SYMBOL(cpsw_ale_read_untagged);
+
+/* returns mask of current members for specificed vlan */
+int cpsw_ale_read_vlan_members(struct cpsw_ale *ale, u16 vid)
+{
+	u32 ale_entry[ALE_ENTRY_WORDS] = {0, 0, 0};
+	int idx;
+
+	idx = cpsw_ale_match_vlan(ale, vid);
+	if (idx >= 0)
+		cpsw_ale_read(ale, idx, ale_entry);
+
+	return cpsw_ale_get_vlan_member_list(ale_entry, ale->vlan_field_bits);
+}
+EXPORT_SYMBOL(cpsw_ale_read_vlan_members);
+
 int cpsw_ale_del_vlan(struct cpsw_ale *ale, u16 vid, int port_mask)
 {
 	u32 ale_entry[ALE_ENTRY_WORDS] = {0, 0, 0};
