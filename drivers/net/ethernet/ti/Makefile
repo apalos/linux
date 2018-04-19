@@ -15,6 +15,7 @@ obj-$(CONFIG_TI_CPSW_PHY_SEL) += cpsw-phy-sel.o
 obj-$(CONFIG_TI_CPSW_ALE) += cpsw_ale.o
 obj-$(CONFIG_TI_CPTS_MOD) += cpts.o
 obj-$(CONFIG_TI_CPSW) += ti_cpsw.o
+ti_cpsw-objs:= cpsw_switchdev.o
 ti_cpsw-y := cpsw.o
 
 obj-$(CONFIG_TI_KEYSTONE_NETCP) += keystone_netcp.o
