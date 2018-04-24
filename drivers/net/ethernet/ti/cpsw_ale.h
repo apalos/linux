@@ -123,4 +123,8 @@ int cpsw_ale_control_set(struct cpsw_ale *ale, int port,
 			 int control, int value);
 void cpsw_ale_dump(struct cpsw_ale *ale, u32 *data);
 
+int cpsw_ale_read_untagged(struct cpsw_ale *ale, u16 vid);
+int cpsw_ale_read_vlan_members(struct cpsw_ale *ale, u16 vid);
+int cpsw_ale_read_maddr(struct cpsw_ale *ale, u8 *addr, int flags, u16 vid);
+
 #endif
