@@ -309,16 +309,6 @@ struct cpsw_ss_regs {
 #define CPSW_MAX_BLKS_TX_SHIFT		4
 #define CPSW_MAX_BLKS_RX		5
 
-struct cpsw_host_regs {
-	u32	max_blks;
-	u32	blk_cnt;
-	u32	tx_in_ctl;
-	u32	port_vlan;
-	u32	tx_pri_map;
-	u32	cpdma_tx_pri_map;
-	u32	cpdma_rx_chan_map;
-};
-
 struct cpsw_sliver_regs {
 	u32	id_ver;
 	u32	mac_control;
@@ -370,38 +360,6 @@ struct cpsw_hw_stats {
 	u32	rxdmaoverruns;
 };
 
-struct cpsw_slave_data {
-	struct device_node *phy_node;
-	char		phy_id[MII_BUS_ID_SIZE];
-	int		phy_if;
-	u8		mac_addr[ETH_ALEN];
-	u16		dual_emac_res_vlan;	/* Reserved VLAN for DualEMAC */
-};
-
-struct cpsw_platform_data {
-	struct cpsw_slave_data	*slave_data;
-	u32	ss_reg_ofs;	/* Subsystem control register offset */
-	u32	channels;	/* number of cpdma channels (symmetric) */
-	u32	slaves;		/* number of slave cpgmac ports */
-	u32	active_slave; /* time stamping, ethtool and SIOCGMIIPHY slave */
-	u32	ale_entries;	/* ale table size */
-	u32	bd_ram_size;  /*buffer descriptor ram size */
-	u32	mac_control;	/* Mac control register */
-	u16	default_vlan;	/* Def VLAN for ALE lookup in VLAN aware mode*/
-	bool	dual_emac;	/* Enable Dual EMAC mode */
-};
-
-struct cpsw_slave {
-	void __iomem			*regs;
-	struct cpsw_sliver_regs __iomem	*sliver;
-	int				slave_num;
-	u32				mac_control;
-	struct cpsw_slave_data		*data;
-	struct phy_device		*phy;
-	struct net_device		*ndev;
-	u32				port_vlan;
-};
-
 static inline u32 slave_read(struct cpsw_slave *slave, u32 offset)
 {
 	return readl_relaxed(slave->regs + offset);
@@ -411,63 +369,6 @@ static inline void slave_write(struct cpsw_slave *slave, u32 val, u32 offset)
 {
 	writel_relaxed(val, slave->regs + offset);
 }
-
-struct cpsw_vector {
-	struct cpdma_chan *ch;
-	int budget;
-};
-
-struct cpsw_common {
-	struct device			*dev;
-	struct cpsw_platform_data	data;
-	struct napi_struct		napi_rx;
-	struct napi_struct		napi_tx;
-	struct cpsw_ss_regs __iomem	*regs;
-	struct cpsw_wr_regs __iomem	*wr_regs;
-	u8 __iomem			*hw_stats;
-	struct cpsw_host_regs __iomem	*host_port_regs;
-	u32				version;
-	u32				coal_intvl;
-	u32				bus_freq_mhz;
-	int				rx_packet_max;
-	struct cpsw_slave		*slaves;
-	struct cpdma_ctlr		*dma;
-	struct cpsw_vector		txv[CPSW_MAX_QUEUES];
-	struct cpsw_vector		rxv[CPSW_MAX_QUEUES];
-	struct cpsw_ale			*ale;
-	bool				quirk_irq;
-	bool				rx_irq_disabled;
-	bool				tx_irq_disabled;
-	u32 irqs_table[IRQ_NUM];
-	struct cpts			*cpts;
-	int				rx_ch_num, tx_ch_num;
-	int				speed;
-	int				usage_count;
-};
-
-struct cpsw_priv {
-	struct net_device		*ndev;
-	struct device			*dev;
-	u32				msg_enable;
-	u8				mac_addr[ETH_ALEN];
-	bool				rx_pause;
-	bool				tx_pause;
-	u32 emac_port;
-	struct cpsw_common *cpsw;
-};
-
-struct cpsw_stats {
-	char stat_string[ETH_GSTRING_LEN];
-	int type;
-	int sizeof_stat;
-	int stat_offset;
-};
-
-enum {
-	CPSW_STATS,
-	CPDMA_RX_STATS,
-	CPDMA_TX_STATS,
-};
 
 #define CPSW_STAT(m)		CPSW_STATS,				\
 				sizeof(((struct cpsw_hw_stats *)0)->m), \
